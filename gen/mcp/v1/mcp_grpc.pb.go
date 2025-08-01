@@ -8,6 +8,7 @@ package v1
 
 import (
 	context "context"
+
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -21,7 +22,9 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	MCPService_IngestEvent_FullMethodName  = "/mcp.v1.MCPService/IngestEvent"
 	MCPService_StreamEvents_FullMethodName = "/mcp.v1.MCPService/StreamEvents"
+	MCPService_EventStream_FullMethodName  = "/mcp.v1.MCPService/EventStream"
 	MCPService_GetHealth_FullMethodName    = "/mcp.v1.MCPService/GetHealth"
+	MCPService_GetMetrics_FullMethodName   = "/mcp.v1.MCPService/GetMetrics"
 )
 
 // MCPServiceClient is the client API for MCPService service.
@@ -34,8 +37,12 @@ type MCPServiceClient interface {
 	IngestEvent(ctx context.Context, in *IngestEventRequest, opts ...grpc.CallOption) (*IngestEventResponse, error)
 	// Stream events (server-side streaming)
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[Event], error)
+	// Bidirectional event streaming
+	EventStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Event, Event], error)
 	// Health check
 	GetHealth(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error)
+	// Get server metrics
+	GetMetrics(ctx context.Context, in *MetricsRequest, opts ...grpc.CallOption) (*MetricsResponse, error)
 }
 
 type mCPServiceClient struct {
@@ -75,10 +82,33 @@ func (c *mCPServiceClient) StreamEvents(ctx context.Context, in *StreamEventsReq
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MCPService_StreamEventsClient = grpc.ServerStreamingClient[Event]
 
+func (c *mCPServiceClient) EventStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Event, Event], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &MCPService_ServiceDesc.Streams[1], MCPService_EventStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[Event, Event]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MCPService_EventStreamClient = grpc.BidiStreamingClient[Event, Event]
+
 func (c *mCPServiceClient) GetHealth(ctx context.Context, in *HealthCheckRequest, opts ...grpc.CallOption) (*HealthCheckResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HealthCheckResponse)
 	err := c.cc.Invoke(ctx, MCPService_GetHealth_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mCPServiceClient) GetMetrics(ctx context.Context, in *MetricsRequest, opts ...grpc.CallOption) (*MetricsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MetricsResponse)
+	err := c.cc.Invoke(ctx, MCPService_GetMetrics_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +125,12 @@ type MCPServiceServer interface {
 	IngestEvent(context.Context, *IngestEventRequest) (*IngestEventResponse, error)
 	// Stream events (server-side streaming)
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[Event]) error
+	// Bidirectional event streaming
+	EventStream(grpc.BidiStreamingServer[Event, Event]) error
 	// Health check
 	GetHealth(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error)
+	// Get server metrics
+	GetMetrics(context.Context, *MetricsRequest) (*MetricsResponse, error)
 }
 
 // UnimplementedMCPServiceServer should be embedded to have
@@ -112,8 +146,14 @@ func (UnimplementedMCPServiceServer) IngestEvent(context.Context, *IngestEventRe
 func (UnimplementedMCPServiceServer) StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[Event]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamEvents not implemented")
 }
+func (UnimplementedMCPServiceServer) EventStream(grpc.BidiStreamingServer[Event, Event]) error {
+	return status.Errorf(codes.Unimplemented, "method EventStream not implemented")
+}
 func (UnimplementedMCPServiceServer) GetHealth(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetHealth not implemented")
+}
+func (UnimplementedMCPServiceServer) GetMetrics(context.Context, *MetricsRequest) (*MetricsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMetrics not implemented")
 }
 func (UnimplementedMCPServiceServer) testEmbeddedByValue() {}
 
@@ -164,6 +204,13 @@ func _MCPService_StreamEvents_Handler(srv interface{}, stream grpc.ServerStream)
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type MCPService_StreamEventsServer = grpc.ServerStreamingServer[Event]
 
+func _MCPService_EventStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MCPServiceServer).EventStream(&grpc.GenericServerStream[Event, Event]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type MCPService_EventStreamServer = grpc.BidiStreamingServer[Event, Event]
+
 func _MCPService_GetHealth_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HealthCheckRequest)
 	if err := dec(in); err != nil {
@@ -178,6 +225,24 @@ func _MCPService_GetHealth_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MCPServiceServer).GetHealth(ctx, req.(*HealthCheckRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MCPService_GetMetrics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MetricsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MCPServiceServer).GetMetrics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MCPService_GetMetrics_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MCPServiceServer).GetMetrics(ctx, req.(*MetricsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -197,12 +262,22 @@ var MCPService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetHealth",
 			Handler:    _MCPService_GetHealth_Handler,
 		},
+		{
+			MethodName: "GetMetrics",
+			Handler:    _MCPService_GetMetrics_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "StreamEvents",
 			Handler:       _MCPService_StreamEvents_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "EventStream",
+			Handler:       _MCPService_EventStream_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "proto/mcp.proto",

@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 package mcp.v1;
+
 option go_package = "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1";
 
 // Event represents a structured event in the MCP system
@@ -29,6 +30,7 @@ message IngestEventResponse {
   bool success = 2;
   string message = 3;
   int64 timestamp = 4;
+  string status = 5;
 }
 
 // StreamEventsRequest represents a request to stream events
@@ -46,16 +48,36 @@ message HealthCheckResponse {
   bool healthy = 1;
   string status = 2;
   map<string, string> details = 3;
+  int64 uptime = 4;
+}
+
+// MetricsRequest represents a request for server metrics
+message MetricsRequest {}
+
+// MetricsResponse represents server metrics
+message MetricsResponse {
+  int64 total_events = 1;
+  int64 stream_events = 2;
+  int64 forwarded_events = 3;
+  int64 error_events = 4;
+  int32 active_streams = 5;
+  int64 uptime = 6;
 }
 
 // MCPService defines the main service interface
 service MCPService {
   // Ingest a single event
   rpc IngestEvent(IngestEventRequest) returns (IngestEventResponse);
-  
+
   // Stream events (server-side streaming)
   rpc StreamEvents(StreamEventsRequest) returns (stream Event);
-  
+
+  // Bidirectional event streaming
+  rpc EventStream(stream Event) returns (stream Event);
+
   // Health check
   rpc GetHealth(HealthCheckRequest) returns (HealthCheckResponse);
+
+  // Get server metrics
+  rpc GetMetrics(MetricsRequest) returns (MetricsResponse);
 }

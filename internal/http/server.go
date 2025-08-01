@@ -1,28 +1,34 @@
+// Package http provides HTTP server functionality for the TAS MCP server.
 package http
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
+	"go.uber.org/zap"
+
 	mcpv1 "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1"
-	"github.com/tributary-ai-services/tas-mcp/internal/config"
 	"github.com/tributary-ai-services/tas-mcp/internal/forwarding"
 	grpcserver "github.com/tributary-ai-services/tas-mcp/internal/grpc"
-	"go.uber.org/zap"
+)
+
+// Constants for the HTTP server
+const (
+	// DefaultVersion is the default version string
+	DefaultVersion = "1.0.0"
+	// MaxEventsLimit is the maximum number of events to return in a single request
+	MaxEventsLimit = 1000
 )
 
 // Server holds the HTTP server configuration
 type Server struct {
-	log         *zap.Logger
-	mcpServer   *grpcserver.MCPServer
-	forwarder   *forwarding.EventForwarder
-	version     string
-	startTime   time.Time
+	log       *zap.Logger
+	mcpServer *grpcserver.MCPServer
+	forwarder *forwarding.EventForwarder
+	version   string
+	startTime time.Time
 }
 
 // NewServer creates a new HTTP server instance
@@ -31,7 +37,7 @@ func NewServer(log *zap.Logger, mcpServer *grpcserver.MCPServer, forwarder *forw
 		log:       log,
 		mcpServer: mcpServer,
 		forwarder: forwarder,
-		version:   "1.0.0",
+		version:   DefaultVersion,
 		startTime: time.Now(),
 	}
 }
@@ -48,10 +54,10 @@ type EventRequest struct {
 
 // HealthResponse represents the health check response
 type HealthResponse struct {
-	Status    string    `json:"status"`
-	Timestamp time.Time `json:"timestamp"`
-	Version   string    `json:"version"`
-	Uptime    string    `json:"uptime"`
+	Status    string                  `json:"status"`
+	Timestamp time.Time               `json:"timestamp"`
+	Version   string                  `json:"version"`
+	Uptime    string                  `json:"uptime"`
 	Stats     *grpcserver.ServerStats `json:"stats,omitempty"`
 }
 
@@ -94,12 +100,12 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		
+
 		// Wrap ResponseWriter to capture status code
 		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-		
+
 		next.ServeHTTP(lrw, r)
-		
+
 		s.log.Info("HTTP request",
 			zap.String("method", r.Method),
 			zap.String("path", r.URL.Path),
@@ -114,12 +120,12 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
+
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -186,7 +192,7 @@ func (s *Server) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 
 	// Return response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"event_id": resp.EventId,
 		"status":   resp.Status,
 	})
@@ -204,13 +210,13 @@ func (s *Server) handleBatchIngestEvents(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if len(events) > 1000 {
+	if len(events) > MaxEventsLimit {
 		http.Error(w, "Too many events (max 1000)", http.StatusRequestEntityTooLarge)
 		return
 	}
 
 	results := make([]map[string]interface{}, 0, len(events))
-	
+
 	for _, eventReq := range events {
 		// Set timestamp if not provided
 		if eventReq.Timestamp == 0 {
@@ -242,14 +248,14 @@ func (s *Server) handleBatchIngestEvents(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"processed": len(results),
 		"results":   results,
 	})
 }
 
 // Forwarding management handlers
-func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListTargets(w http.ResponseWriter, _ *http.Request) {
 	if s.forwarder == nil {
 		http.Error(w, "Forwarding not enabled", http.StatusServiceUnavailable)
 		return
@@ -257,7 +263,7 @@ func (s *Server) handleListTargets(w http.ResponseWriter, r *http.Request) {
 
 	targets := s.forwarder.GetTargets()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(targets)
+	_ = json.NewEncoder(w).Encode(targets)
 }
 
 func (s *Server) handleAddTarget(w http.ResponseWriter, r *http.Request) {
@@ -279,7 +285,7 @@ func (s *Server) handleAddTarget(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status":    "created",
 		"target_id": target.ID,
 	})
@@ -302,7 +308,7 @@ func (s *Server) handleGetTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(target)
+	_ = json.NewEncoder(w).Encode(target)
 }
 
 func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
@@ -323,14 +329,14 @@ func (s *Server) handleUpdateTarget(w http.ResponseWriter, r *http.Request) {
 	target.ID = targetID
 
 	// Remove existing target and add updated one
-	s.forwarder.RemoveTarget(targetID)
+	_ = s.forwarder.RemoveTarget(targetID)
 	if err := s.forwarder.AddTarget(&target); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status":    "updated",
 		"target_id": target.ID,
 	})
@@ -351,13 +357,13 @@ func (s *Server) handleDeleteTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	_ = json.NewEncoder(w).Encode(map[string]string{
 		"status":    "deleted",
 		"target_id": targetID,
 	})
 }
 
-func (s *Server) handleForwardingMetrics(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleForwardingMetrics(w http.ResponseWriter, _ *http.Request) {
 	if s.forwarder == nil {
 		http.Error(w, "Forwarding not enabled", http.StatusServiceUnavailable)
 		return
@@ -365,7 +371,7 @@ func (s *Server) handleForwardingMetrics(w http.ResponseWriter, r *http.Request)
 
 	metrics := s.forwarder.GetMetrics()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metrics)
+	_ = json.NewEncoder(w).Encode(metrics)
 }
 
 // Server management handlers
@@ -377,21 +383,21 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleStats(w http.ResponseWriter, _ *http.Request) {
 	stats := s.mcpServer.GetStats()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(stats)
 }
 
 // Health check handlers
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	stats := s.mcpServer.GetStats()
-	
+
 	response := HealthResponse{
-		Status:    "healthy", 
+		Status:    "healthy",
 		Timestamp: time.Now(),
 		Version:   s.version,
 		Uptime:    time.Since(s.startTime).String(),
@@ -399,12 +405,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
-func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleReady(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
 }
 
 // Legacy handler for backward compatibility
@@ -445,5 +451,5 @@ func (s *Server) handleLegacyMCPEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": resp.Status})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": resp.Status})
 }

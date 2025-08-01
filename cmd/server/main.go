@@ -1,3 +1,4 @@
+// Package main implements the TAS MCP server executable.
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -25,7 +27,45 @@ import (
 	"github.com/tributary-ai-services/tas-mcp/internal/logger"
 )
 
+// Server configuration constants
+const (
+	// MaxMessageSize is the maximum gRPC message size (4MB)
+	MaxMessageSize = 4 * 1024 * 1024
+	// HTTPReadTimeout is the timeout for reading HTTP requests
+	HTTPReadTimeout = 30 * time.Second
+	// HTTPWriteTimeout is the timeout for writing HTTP responses
+	HTTPWriteTimeout = 30 * time.Second
+	// HTTPIdleTimeout is the timeout for idle HTTP connections
+	HTTPIdleTimeout = 120 * time.Second
+	// HealthReadHeaderTimeout is the timeout for reading headers on health check endpoint
+	HealthReadHeaderTimeout = 10 * time.Second
+	// ShutdownTimeout is the timeout for graceful shutdown
+	ShutdownTimeout = 30 * time.Second
+)
+
 func main() {
+	cfg, zapLogger := initializeApp()
+	defer func() { _ = zapLogger.Sync() }()
+
+	zapLogger.Info("Starting TAS MCP Server",
+		zap.String("version", cfg.Version),
+		zap.Int("http_port", cfg.HTTPPort),
+		zap.Int("grpc_port", cfg.GRPCPort),
+		zap.String("log_level", cfg.LogLevel))
+
+	forwarder := initializeForwarder(cfg, zapLogger)
+	if forwarder != nil {
+		defer forwarder.Stop()
+	}
+
+	grpcServer, mcpServer := setupGRPCServer(cfg, zapLogger, forwarder)
+	httpServerInstance := setupHTTPServer(cfg, zapLogger, mcpServer, forwarder)
+	healthHTTPServer := setupHealthServer(cfg, zapLogger, mcpServer, forwarder)
+
+	waitForShutdown(zapLogger, httpServerInstance, healthHTTPServer, grpcServer)
+}
+
+func initializeApp() (*config.Config, *zap.Logger) {
 	var (
 		configFile = flag.String("config", "", "Configuration file path")
 		version    = flag.Bool("version", false, "Show version information")
@@ -55,32 +95,36 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
-	defer zapLogger.Sync()
 
-	zapLogger.Info("Starting TAS MCP Server",
-		logger.String("version", cfg.Version),
-		logger.Int("http_port", cfg.HTTPPort),
-		logger.Int("grpc_port", cfg.GRPCPort),
-		logger.String("log_level", cfg.LogLevel))
+	return cfg, zapLogger
+}
 
-	// Initialize event forwarder if enabled
-	var forwarder *forwarding.EventForwarder
-	if cfg.Forwarding != nil && cfg.Forwarding.Enabled {
-		forwarder = forwarding.NewEventForwarder(zapLogger, cfg.Forwarding)
-		if err := forwarder.Start(); err != nil {
-			zapLogger.Fatal("Failed to start event forwarder", logger.Error(err))
-		}
-		defer forwarder.Stop()
-		
-		zapLogger.Info("Event forwarding enabled",
-			logger.Int("targets", len(cfg.Forwarding.Targets)),
-			logger.Int("workers", cfg.Forwarding.Workers))
+func initializeForwarder(cfg *config.Config, zapLogger *zap.Logger) *forwarding.EventForwarder {
+	if cfg.Forwarding == nil || !cfg.Forwarding.Enabled {
+		return nil
 	}
 
+	forwarder := forwarding.NewEventForwarder(zapLogger, cfg.Forwarding)
+	if err := forwarder.Start(); err != nil {
+		zapLogger.Fatal("Failed to start event forwarder", zap.Error(err))
+	}
+
+	zapLogger.Info("Event forwarding enabled",
+		zap.Int("targets", len(cfg.Forwarding.Targets)),
+		zap.Int("workers", cfg.Forwarding.Workers))
+
+	return forwarder
+}
+
+func setupGRPCServer(
+	cfg *config.Config,
+	zapLogger *zap.Logger,
+	forwarder *forwarding.EventForwarder,
+) (*grpc.Server, *grpcserver.MCPServer) {
 	// Create gRPC server
 	grpcServer := grpc.NewServer(
-		grpc.MaxRecvMsgSize(4*1024*1024), // 4MB
-		grpc.MaxSendMsgSize(4*1024*1024), // 4MB
+		grpc.MaxRecvMsgSize(MaxMessageSize),
+		grpc.MaxSendMsgSize(MaxMessageSize),
 	)
 
 	// Create and register MCP service
@@ -98,37 +142,54 @@ func main() {
 	// Start gRPC server
 	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.GRPCPort))
 	if err != nil {
-		zapLogger.Fatal("Failed to listen on gRPC port", logger.Error(err))
+		zapLogger.Fatal("Failed to listen on gRPC port", zap.Error(err))
 	}
 
 	go func() {
-		zapLogger.Info("Starting gRPC server", logger.Int("port", cfg.GRPCPort))
+		zapLogger.Info("Starting gRPC server", zap.Int("port", cfg.GRPCPort))
 		if err := grpcServer.Serve(grpcListener); err != nil {
-			zapLogger.Fatal("gRPC server failed", logger.Error(err))
+			zapLogger.Fatal("gRPC server failed", zap.Error(err))
 		}
 	}()
 
+	return grpcServer, mcpServer
+}
+
+func setupHTTPServer(
+	cfg *config.Config,
+	zapLogger *zap.Logger,
+	mcpServer *grpcserver.MCPServer,
+	forwarder *forwarding.EventForwarder,
+) *http.Server {
 	// Create HTTP server
 	httpSrv := httpserver.NewServer(zapLogger, mcpServer, forwarder)
 	httpServerInstance := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:      httpSrv.Handler(),
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  HTTPReadTimeout,
+		WriteTimeout: HTTPWriteTimeout,
+		IdleTimeout:  HTTPIdleTimeout,
 	}
 
 	// Start HTTP server
 	go func() {
-		zapLogger.Info("Starting HTTP server", logger.Int("port", cfg.HTTPPort))
+		zapLogger.Info("Starting HTTP server", zap.Int("port", cfg.HTTPPort))
 		if err := httpServerInstance.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			zapLogger.Fatal("HTTP server failed", logger.Error(err))
+			zapLogger.Fatal("HTTP server failed", zap.Error(err))
 		}
 	}()
 
-	// Create health check server
+	return httpServerInstance
+}
+
+func setupHealthServer(
+	cfg *config.Config,
+	zapLogger *zap.Logger,
+	mcpServer *grpcserver.MCPServer,
+	forwarder *forwarding.EventForwarder,
+) *http.Server {
 	healthMux := http.NewServeMux()
-	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	healthMux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		stats := mcpServer.GetStats()
 		response := map[string]interface{}{
 			"status":    "healthy",
@@ -156,35 +217,40 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{
+		_, _ = fmt.Fprintf(w, `{
 			"status": "%s",
 			"timestamp": "%s",
 			"uptime": %.2f,
 			"stats": %v
-		}`, 
-			response["status"], 
-			response["timestamp"], 
+		}`,
+			response["status"],
+			response["timestamp"],
 			response["uptime"],
 			response["stats"])
 	})
 
-	healthMux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+	healthMux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ready"))
+		_, _ = w.Write([]byte("ready"))
 	})
 
-	healthServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.HealthCheckPort),
-		Handler: healthMux,
+	healthHTTPServer := &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.HealthCheckPort),
+		Handler:           healthMux,
+		ReadHeaderTimeout: HealthReadHeaderTimeout,
 	}
 
 	go func() {
-		zapLogger.Info("Starting health check server", logger.Int("port", cfg.HealthCheckPort))
-		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			zapLogger.Error("Health check server failed", logger.Error(err))
+		zapLogger.Info("Starting health check server", zap.Int("port", cfg.HealthCheckPort))
+		if err := healthHTTPServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			zapLogger.Error("Health check server failed", zap.Error(err))
 		}
 	}()
 
+	return healthHTTPServer
+}
+
+func waitForShutdown(zapLogger *zap.Logger, httpServer, healthServer *http.Server, grpcServer *grpc.Server) {
 	// Wait for shutdown signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -193,17 +259,17 @@ func main() {
 	zapLogger.Info("Shutting down servers...")
 
 	// Graceful shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 	defer cancel()
 
 	// Shutdown HTTP server
-	if err := httpServerInstance.Shutdown(ctx); err != nil {
-		zapLogger.Error("HTTP server shutdown error", logger.Error(err))
+	if err := httpServer.Shutdown(ctx); err != nil {
+		zapLogger.Error("HTTP server shutdown error", zap.Error(err))
 	}
 
 	// Shutdown health server
 	if err := healthServer.Shutdown(ctx); err != nil {
-		zapLogger.Error("Health server shutdown error", logger.Error(err))
+		zapLogger.Error("Health server shutdown error", zap.Error(err))
 	}
 
 	// Shutdown gRPC server

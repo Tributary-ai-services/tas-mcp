@@ -8,26 +8,27 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	mcpv1 "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1"
 	"github.com/tributary-ai-services/tas-mcp/internal/config"
-	"go.uber.org/zap"
 )
 
 func TestNewEventForwarder(t *testing.T) {
 	logger := zap.NewNop()
 	config := &config.ForwardingConfig{
-		Enabled:             true,
+		Enabled:              true,
 		DefaultRetryAttempts: 3,
-		DefaultTimeout:      30 * time.Second,
-		BufferSize:          1000,
-		Workers:             5,
-		Targets:             []*config.TargetConfiguration{},
+		DefaultTimeout:       30 * time.Second,
+		BufferSize:           1000,
+		Workers:              5,
+		Targets:              []*config.TargetConfiguration{},
 	}
 
 	forwarder := NewEventForwarder(logger, config)
 
 	if forwarder == nil {
-		t.Error("NewEventForwarder() returned nil")
+		t.Fatal("NewEventForwarder() returned nil")
 	}
 	if forwarder.logger != logger {
 		t.Error("Logger not set correctly")
@@ -49,16 +50,16 @@ func TestForwardingTarget_HTTPTarget(t *testing.T) {
 		if r.Method != http.MethodPost {
 			t.Errorf("Expected POST request, got %s", r.Method)
 		}
-		
+
 		var event mcpv1.Event
 		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 			t.Errorf("Failed to decode request body: %v", err)
 		}
-		
+
 		if event.EventId != "test-123" {
 			t.Errorf("Expected event ID test-123, got %s", event.EventId)
 		}
-		
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status": "accepted"}`))
 	}))
@@ -66,11 +67,11 @@ func TestForwardingTarget_HTTPTarget(t *testing.T) {
 
 	logger := zap.NewNop()
 	config := &config.ForwardingConfig{
-		Enabled:             true,
+		Enabled:              true,
 		DefaultRetryAttempts: 1,
-		DefaultTimeout:      5 * time.Second,
-		BufferSize:          100,
-		Workers:             1,
+		DefaultTimeout:       5 * time.Second,
+		BufferSize:           100,
+		Workers:              1,
 		Targets: []*config.TargetConfiguration{
 			{
 				ID:       "http-target",
@@ -348,7 +349,7 @@ func TestAddTarget_Duplicate(t *testing.T) {
 		Targets: []*config.TargetConfiguration{
 			{
 				ID:       "existing-target",
-				Name:     "Existing Target", 
+				Name:     "Existing Target",
 				Type:     "http",
 				Endpoint: "http://example.com",
 			},
@@ -511,12 +512,12 @@ func TestForwardingTarget_StatusTransitions(t *testing.T) {
 func BenchmarkForwardEvent(b *testing.B) {
 	logger := zap.NewNop()
 	config := &config.ForwardingConfig{
-		Enabled:             true,
+		Enabled:              true,
 		DefaultRetryAttempts: 1,
-		DefaultTimeout:      1 * time.Second,
-		BufferSize:          1000,
-		Workers:             5,
-		Targets:             []*config.TargetConfiguration{},
+		DefaultTimeout:       1 * time.Second,
+		BufferSize:           1000,
+		Workers:              5,
+		Targets:              []*config.TargetConfiguration{},
 	}
 
 	forwarder := NewEventForwarder(logger, config)

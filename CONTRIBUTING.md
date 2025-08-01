@@ -69,7 +69,7 @@ What actually happens
 
 ## Environment
 - OS: [e.g., Ubuntu 22.04]
-- Go version: [e.g., 1.21.5]
+- Go version: [e.g., 1.22.5]
 - TAS MCP version: [e.g., 1.0.0]
 
 ## Additional Context

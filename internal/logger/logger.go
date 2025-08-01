@@ -1,3 +1,4 @@
+// Package logger provides logging functionality for the TAS MCP server.
 package logger
 
 import (

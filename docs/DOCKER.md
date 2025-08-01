@@ -28,7 +28,7 @@ make docker-compose-down
 
 The TAS MCP Server uses a multi-stage Docker build:
 
-1. **Builder Stage**: Uses `golang:1.21-alpine` to compile the Go binary
+1. **Builder Stage**: Uses `golang:1.22-alpine` to compile the Go binary
 2. **Runtime Stage**: Uses `alpine:3.18` for a minimal runtime environment
 
 ### Image Features

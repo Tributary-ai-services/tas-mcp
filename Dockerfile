@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for TAS MCP Server
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
@@ -41,7 +41,7 @@ COPY --from=builder /app/scripts/healthcheck.sh /healthcheck.sh
 RUN chmod +x /healthcheck.sh
 
 # Create non-root user
-RUN adduser -D -s /bin/sh -u 65534 appuser
+RUN adduser -D -s /bin/sh appuser
 USER appuser
 
 # Expose ports

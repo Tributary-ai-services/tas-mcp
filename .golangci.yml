@@ -7,7 +7,7 @@ run:
 
 linters-settings:
   govet:
-    check-shadowing: true
+    shadow: true
   golint:
     min-confidence: 0.8
   gocyclo:
@@ -42,8 +42,7 @@ linters-settings:
 linters:
   enable:
     - bodyclose
-    - deadcode
-    - depguard
+    # - depguard  # Disabled as it's blocking all imports
     - dogsled
     - dupl
     - errcheck
@@ -53,27 +52,23 @@ linters:
     - gocyclo
     - gofmt
     - goimports
-    - golint
-    - gomnd
+    - revive  # replaces golint
+    - mnd
     - goprintffuncname
     - gosec
     - gosimple
     - govet
     - ineffassign
-    - interfacer
     - lll
     - misspell
     - nakedret
     - rowserrcheck
-    - scopelint
     - staticcheck
-    - structcheck
     - stylecheck
     - typecheck
     - unconvert
     - unparam
     - unused
-    - varcheck
     - whitespace
 
 issues:
@@ -86,10 +81,11 @@ issues:
         - dupl
         - gosec
         - lll
+        - typecheck
     # Exclude known linters from generated files
     - path: "gen/"
       linters:
-        - golint
+        - revive
         - stylecheck
         - gocyclo
     # Exclude some staticcheck messages
@@ -106,6 +102,7 @@ issues:
   max-same-issues: 0
 
 output:
-  format: colored-line-number
+  formats:
+    - format: colored-line-number
   print-issued-lines: true
   print-linter-name: true

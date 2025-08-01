@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	mcpv1 "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1"
 	"github.com/tributary-ai-services/tas-mcp/internal/config"
@@ -46,14 +45,14 @@ func NewTestServer(t *testing.T) *TestServer {
 
 	// Create forwarder
 	forwardingConfig := &config.ForwardingConfig{
-		Enabled:             true,
+		Enabled:              true,
 		DefaultRetryAttempts: 3,
-		DefaultTimeout:      5 * time.Second,
-		BufferSize:          100,
-		Workers:             2,
-		Targets: []*config.TargetConfiguration{},
+		DefaultTimeout:       5 * time.Second,
+		BufferSize:           100,
+		Workers:              2,
+		Targets:              []*config.TargetConfiguration{},
 	}
-	
+
 	forwarder := forwarding.NewEventForwarder(zapLogger, forwardingConfig)
 	if err := forwarder.Start(); err != nil {
 		t.Fatalf("Failed to start forwarder: %v", err)
@@ -275,7 +274,7 @@ func TestEventForwardingIntegration(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		
+
 		targetEvents = append(targetEvents, &event)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status": "received"}`))
@@ -285,11 +284,11 @@ func TestEventForwardingIntegration(t *testing.T) {
 	// Create test server with forwarding target
 	zapLogger, _ := logger.NewLogger("debug")
 	forwardingConfig := &config.ForwardingConfig{
-		Enabled:             true,
+		Enabled:              true,
 		DefaultRetryAttempts: 3,
-		DefaultTimeout:      5 * time.Second,
-		BufferSize:          100,
-		Workers:             2,
+		DefaultTimeout:       5 * time.Second,
+		BufferSize:           100,
+		Workers:              2,
 		Targets: []*config.TargetConfiguration{
 			{
 				ID:       "test-target",

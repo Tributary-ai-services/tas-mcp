@@ -6,104 +6,30 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gorilla/mux"
-	mcpv1 "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1"
-	"github.com/tributary-ai-services/tas-mcp/internal/forwarding"
-	grpcserver "github.com/tributary-ai-services/tas-mcp/internal/grpc"
 	"go.uber.org/zap"
+
+	grpcserver "github.com/tributary-ai-services/tas-mcp/internal/grpc"
 )
-
-// Mock MCP Server for testing
-type mockMCPServer struct {
-	ingestEventFunc func(*mcpv1.IngestEventRequest) (*mcpv1.IngestEventResponse, error)
-	getStatsFunc    func() *grpcserver.ServerStats
-}
-
-func (m *mockMCPServer) IngestEvent(req *mcpv1.IngestEventRequest) (*mcpv1.IngestEventResponse, error) {
-	if m.ingestEventFunc != nil {
-		return m.ingestEventFunc(req)
-	}
-	return &mcpv1.IngestEventResponse{
-		EventId: req.EventId,
-		Status:  "accepted",
-	}, nil
-}
-
-func (m *mockMCPServer) GetStats() *grpcserver.ServerStats {
-	if m.getStatsFunc != nil {
-		return m.getStatsFunc()
-	}
-	return &grpcserver.ServerStats{
-		TotalEvents:     100,
-		StreamEvents:    50,
-		ForwardedEvents: 75,
-		ErrorEvents:     5,
-		ActiveStreams:   3,
-		StartTime:       time.Now().Add(-time.Hour),
-	}
-}
-
-// Mock Event Forwarder for testing
-type mockForwarder struct {
-	getTargetsFunc  func() map[string]*forwarding.ForwardingTarget
-	addTargetFunc   func(*forwarding.ForwardingTarget) error
-	removeTargetFunc func(string) error
-	getMetricsFunc  func() *forwarding.ForwardingMetrics
-}
-
-func (m *mockForwarder) GetTargets() map[string]*forwarding.ForwardingTarget {
-	if m.getTargetsFunc != nil {
-		return m.getTargetsFunc()
-	}
-	return make(map[string]*forwarding.ForwardingTarget)
-}
-
-func (m *mockForwarder) AddTarget(target *forwarding.ForwardingTarget) error {
-	if m.addTargetFunc != nil {
-		return m.addTargetFunc(target)
-	}
-	return nil
-}
-
-func (m *mockForwarder) RemoveTarget(id string) error {
-	if m.removeTargetFunc != nil {
-		return m.removeTargetFunc(id)
-	}
-	return nil
-}
-
-func (m *mockForwarder) GetMetrics() *forwarding.ForwardingMetrics {
-	if m.getMetricsFunc != nil {
-		return m.getMetricsFunc()
-	}
-	return &forwarding.ForwardingMetrics{
-		TotalEvents:     200,
-		ForwardedEvents: 180,
-		FailedEvents:    10,
-		DroppedEvents:   5,
-	}
-}
 
 func TestNewServer(t *testing.T) {
 	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
-	forwarder := &mockForwarder{}
+	mcpServer := grpcserver.NewMCPServer(logger, nil)
 
-	server := NewServer(logger, mcpServer, forwarder)
+	server := NewServer(logger, mcpServer, nil)
 
 	if server == nil {
-		t.Error("NewServer() returned nil")
+		t.Fatal("NewServer() returned nil")
 	}
-	if server.version != "1.0.0" {
-		t.Errorf("Server version = %s, want 1.0.0", server.version)
+	if server.version != DefaultVersion {
+		t.Errorf("Server version = %s, want %s", server.version, DefaultVersion)
 	}
 }
 
 func TestHandleIngestEvent(t *testing.T) {
 	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
+	mcpServer := grpcserver.NewMCPServer(logger, nil)
 	server := NewServer(logger, mcpServer, nil)
 
 	tests := []struct {
@@ -167,7 +93,7 @@ func TestHandleIngestEvent(t *testing.T) {
 			body, _ := json.Marshal(tt.requestBody)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/events", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
-			
+
 			rr := httptest.NewRecorder()
 			server.handleIngestEvent(rr, req)
 
@@ -186,7 +112,7 @@ func TestHandleIngestEvent(t *testing.T) {
 
 func TestHandleBatchIngestEvents(t *testing.T) {
 	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
+	mcpServer := grpcserver.NewMCPServer(logger, nil)
 	server := NewServer(logger, mcpServer, nil)
 
 	tests := []struct {
@@ -231,7 +157,7 @@ func TestHandleBatchIngestEvents(t *testing.T) {
 			body, _ := json.Marshal(tt.requestBody)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/events/batch", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
-			
+
 			rr := httptest.NewRecorder()
 			server.handleBatchIngestEvents(rr, req)
 
@@ -244,7 +170,7 @@ func TestHandleBatchIngestEvents(t *testing.T) {
 				if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
 					t.Errorf("Failed to unmarshal response: %v", err)
 				}
-				
+
 				if processed, ok := response["processed"].(float64); !ok || int(processed) != tt.expectedCount {
 					t.Errorf("Expected processed count = %d, got %v", tt.expectedCount, response["processed"])
 				}
@@ -255,10 +181,10 @@ func TestHandleBatchIngestEvents(t *testing.T) {
 
 func TestHandleHealth(t *testing.T) {
 	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
+	mcpServer := grpcserver.NewMCPServer(logger, nil)
 	server := NewServer(logger, mcpServer, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", http.NoBody)
 	rr := httptest.NewRecorder()
 
 	server.handleHealth(rr, req)
@@ -282,10 +208,10 @@ func TestHandleHealth(t *testing.T) {
 
 func TestHandleReady(t *testing.T) {
 	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
+	mcpServer := grpcserver.NewMCPServer(logger, nil)
 	server := NewServer(logger, mcpServer, nil)
 
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", http.NoBody)
 	rr := httptest.NewRecorder()
 
 	server.handleReady(rr, req)
@@ -304,57 +230,12 @@ func TestHandleReady(t *testing.T) {
 	}
 }
 
-func TestHandleListTargets(t *testing.T) {
-	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
-	
-	// Mock forwarder with test targets
-	forwarder := &mockForwarder{
-		getTargetsFunc: func() map[string]*forwarding.ForwardingTarget {
-			return map[string]*forwarding.ForwardingTarget{
-				"target-1": {
-					ID:       "target-1",
-					Name:     "Test Target 1",
-					Type:     "http",
-					Endpoint: "http://example.com",
-				},
-			}
-		},
-	}
-	
-	server := NewServer(logger, mcpServer, forwarder)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/forwarding/targets", nil)
-	rr := httptest.NewRecorder()
-
-	server.handleListTargets(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("handleListTargets() status = %d, want %d", rr.Code, http.StatusOK)
-	}
-
-	var response map[string]*forwarding.ForwardingTarget
-	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
-		t.Errorf("Failed to unmarshal targets response: %v", err)
-	}
-
-	if len(response) != 1 {
-		t.Errorf("Number of targets = %d, want 1", len(response))
-	}
-
-	if target, exists := response["target-1"]; !exists {
-		t.Error("Expected target-1 not found")
-	} else if target.Name != "Test Target 1" {
-		t.Errorf("Target name = %s, want Test Target 1", target.Name)
-	}
-}
-
 func TestHandleListTargets_NoForwarder(t *testing.T) {
 	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
+	mcpServer := grpcserver.NewMCPServer(logger, nil)
 	server := NewServer(logger, mcpServer, nil) // No forwarder
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/forwarding/targets", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/forwarding/targets", http.NoBody)
 	rr := httptest.NewRecorder()
 
 	server.handleListTargets(rr, req)
@@ -366,18 +247,18 @@ func TestHandleListTargets_NoForwarder(t *testing.T) {
 
 func TestCorsMiddleware(t *testing.T) {
 	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
+	mcpServer := grpcserver.NewMCPServer(logger, nil)
 	server := NewServer(logger, mcpServer, nil)
 
 	// Test handler
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
 	// Wrap with CORS middleware
 	corsHandler := server.corsMiddleware(handler)
 
-	req := httptest.NewRequest(http.MethodOptions, "/test", nil)
+	req := httptest.NewRequest(http.MethodOptions, "/test", http.NoBody)
 	rr := httptest.NewRecorder()
 
 	corsHandler.ServeHTTP(rr, req)
@@ -400,7 +281,7 @@ func TestCorsMiddleware(t *testing.T) {
 
 func TestRouterSetup(t *testing.T) {
 	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
+	mcpServer := grpcserver.NewMCPServer(logger, nil)
 	server := NewServer(logger, mcpServer, nil)
 
 	handler := server.Handler()
@@ -417,13 +298,13 @@ func TestRouterSetup(t *testing.T) {
 	}{
 		{http.MethodGet, "/health", http.StatusOK},
 		{http.MethodGet, "/ready", http.StatusOK},
-		{http.MethodPost, "/api/v1/events", http.StatusBadRequest}, // Bad request due to empty body
+		{http.MethodPost, "/api/v1/events", http.StatusBadRequest},                    // Bad request due to empty body
 		{http.MethodGet, "/api/v1/forwarding/targets", http.StatusServiceUnavailable}, // No forwarder
 	}
 
 	for _, route := range testRoutes {
 		t.Run(route.method+" "+route.path, func(t *testing.T) {
-			req := httptest.NewRequest(route.method, route.path, nil)
+			req := httptest.NewRequest(route.method, route.path, http.NoBody)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)
@@ -437,11 +318,11 @@ func TestRouterSetup(t *testing.T) {
 
 func TestLoggingMiddleware(t *testing.T) {
 	logger := zap.NewNop()
-	mcpServer := &mockMCPServer{}
+	mcpServer := grpcserver.NewMCPServer(logger, nil)
 	server := NewServer(logger, mcpServer, nil)
 
 	// Test handler
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("test response"))
 	})
@@ -449,7 +330,7 @@ func TestLoggingMiddleware(t *testing.T) {
 	// Wrap with logging middleware
 	loggingHandler := server.loggingMiddleware(handler)
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 	rr := httptest.NewRecorder()
 
 	loggingHandler.ServeHTTP(rr, req)

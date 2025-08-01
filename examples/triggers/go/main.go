@@ -9,7 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
-	
+
 	// TAS MCP proto definitions
 	mcpv1 "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1"
 )
@@ -22,21 +22,21 @@ type TriggerHandler struct {
 
 // EventPayload represents the structure of incoming events
 type EventPayload struct {
-	EventID     string                 `json:"eventId"`
-	EventType   string                 `json:"eventType"`
-	Source      string                 `json:"source"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Data        map[string]interface{} `json:"data"`
-	Metadata    map[string]string      `json:"metadata"`
+	EventID   string                 `json:"eventId"`
+	EventType string                 `json:"eventType"`
+	Source    string                 `json:"source"`
+	Timestamp time.Time              `json:"timestamp"`
+	Data      map[string]interface{} `json:"data"`
+	Metadata  map[string]string      `json:"metadata"`
 }
 
 // TriggerConfig defines trigger conditions and actions
 type TriggerConfig struct {
-	Name        string            `json:"name"`
-	Conditions  []Condition       `json:"conditions"`
-	Actions     []Action          `json:"actions"`
-	Enabled     bool              `json:"enabled"`
-	Metadata    map[string]string `json:"metadata"`
+	Name       string            `json:"name"`
+	Conditions []Condition       `json:"conditions"`
+	Actions    []Action          `json:"actions"`
+	Enabled    bool              `json:"enabled"`
+	Metadata   map[string]string `json:"metadata"`
 }
 
 // Condition defines when a trigger should fire
@@ -48,11 +48,11 @@ type Condition struct {
 
 // Action defines what should happen when trigger fires
 type Action struct {
-	Type       string                 `json:"type"`       // http, grpc, kafka, email
-	Target     string                 `json:"target"`     // URL, topic, address
-	Payload    map[string]interface{} `json:"payload"`
-	Timeout    time.Duration          `json:"timeout"`
-	Retries    int                    `json:"retries"`
+	Type    string                 `json:"type"`   // http, grpc, kafka, email
+	Target  string                 `json:"target"` // URL, topic, address
+	Payload map[string]interface{} `json:"payload"`
+	Timeout time.Duration          `json:"timeout"`
+	Retries int                    `json:"retries"`
 }
 
 // NewTriggerHandler creates a new trigger handler
@@ -104,8 +104,8 @@ func (h *TriggerHandler) handleUserCreatedTrigger(payload EventPayload) {
 		},
 		Actions: []Action{
 			{
-				Type:    "http",
-				Target:  "https://api.example.com/welcome-email",
+				Type:   "http",
+				Target: "https://api.example.com/welcome-email",
 				Payload: map[string]interface{}{
 					"userId": payload.Data["userId"],
 					"email":  payload.Data["email"],
@@ -229,7 +229,7 @@ func (h *TriggerHandler) handleGenericTrigger(payload EventPayload) {
 
 	// Convert payload to gRPC message
 	eventData, _ := json.Marshal(payload.Data)
-	
+
 	req := &mcpv1.IngestEventRequest{
 		EventId:   payload.EventID,
 		EventType: payload.EventType,
@@ -285,7 +285,7 @@ func (h *TriggerHandler) evaluateConditions(conditions []Condition, payload Even
 // evaluateCondition evaluates a single condition
 func (h *TriggerHandler) evaluateCondition(condition Condition, payload EventPayload) bool {
 	var value interface{}
-	
+
 	// Extract value from payload based on field path
 	switch condition.Field {
 	case "eventType":
@@ -309,9 +309,9 @@ func (h *TriggerHandler) evaluateCondition(condition Condition, payload EventPay
 	case "contains":
 		if str, ok := value.(string); ok {
 			if substr, ok := condition.Value.(string); ok {
-				return len(str) > 0 && len(substr) > 0 && 
-					   len(str) >= len(substr) && 
-					   str != substr // avoid self-contains
+				return len(str) > 0 && len(substr) > 0 &&
+					len(str) >= len(substr) &&
+					str != substr // avoid self-contains
 			}
 		}
 		return false
@@ -350,7 +350,7 @@ func (h *TriggerHandler) executeHTTPAction(ctx context.Context, action Action, p
 	// Implementation details...
 }
 
-// executeGRPCAction sends gRPC request  
+// executeGRPCAction sends gRPC request
 func (h *TriggerHandler) executeGRPCAction(ctx context.Context, action Action, payload EventPayload) {
 	// Implement gRPC action execution
 	h.logger.Info("Executing gRPC action", zap.String("target", action.Target))

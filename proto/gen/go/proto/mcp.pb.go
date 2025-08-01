@@ -7,11 +7,12 @@
 package v1
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -198,6 +199,7 @@ type IngestEventResponse struct {
 	Success       bool                   `protobuf:"varint,2,opt,name=success,proto3" json:"success,omitempty"`
 	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
 	Timestamp     int64                  `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -258,6 +260,13 @@ func (x *IngestEventResponse) GetTimestamp() int64 {
 		return x.Timestamp
 	}
 	return 0
+}
+
+func (x *IngestEventResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
 }
 
 // StreamEventsRequest represents a request to stream events
@@ -364,6 +373,7 @@ type HealthCheckResponse struct {
 	Healthy       bool                   `protobuf:"varint,1,opt,name=healthy,proto3" json:"healthy,omitempty"`
 	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
 	Details       map[string]string      `protobuf:"bytes,3,rep,name=details,proto3" json:"details,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Uptime        int64                  `protobuf:"varint,4,opt,name=uptime,proto3" json:"uptime,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -419,6 +429,135 @@ func (x *HealthCheckResponse) GetDetails() map[string]string {
 	return nil
 }
 
+func (x *HealthCheckResponse) GetUptime() int64 {
+	if x != nil {
+		return x.Uptime
+	}
+	return 0
+}
+
+// MetricsRequest represents a request for server metrics
+type MetricsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MetricsRequest) Reset() {
+	*x = MetricsRequest{}
+	mi := &file_proto_mcp_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MetricsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetricsRequest) ProtoMessage() {}
+
+func (x *MetricsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mcp_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MetricsRequest.ProtoReflect.Descriptor instead.
+func (*MetricsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_mcp_proto_rawDescGZIP(), []int{6}
+}
+
+// MetricsResponse represents server metrics
+type MetricsResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	TotalEvents     int64                  `protobuf:"varint,1,opt,name=total_events,json=totalEvents,proto3" json:"total_events,omitempty"`
+	StreamEvents    int64                  `protobuf:"varint,2,opt,name=stream_events,json=streamEvents,proto3" json:"stream_events,omitempty"`
+	ForwardedEvents int64                  `protobuf:"varint,3,opt,name=forwarded_events,json=forwardedEvents,proto3" json:"forwarded_events,omitempty"`
+	ErrorEvents     int64                  `protobuf:"varint,4,opt,name=error_events,json=errorEvents,proto3" json:"error_events,omitempty"`
+	ActiveStreams   int32                  `protobuf:"varint,5,opt,name=active_streams,json=activeStreams,proto3" json:"active_streams,omitempty"`
+	Uptime          int64                  `protobuf:"varint,6,opt,name=uptime,proto3" json:"uptime,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *MetricsResponse) Reset() {
+	*x = MetricsResponse{}
+	mi := &file_proto_mcp_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MetricsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MetricsResponse) ProtoMessage() {}
+
+func (x *MetricsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_mcp_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MetricsResponse.ProtoReflect.Descriptor instead.
+func (*MetricsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_mcp_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *MetricsResponse) GetTotalEvents() int64 {
+	if x != nil {
+		return x.TotalEvents
+	}
+	return 0
+}
+
+func (x *MetricsResponse) GetStreamEvents() int64 {
+	if x != nil {
+		return x.StreamEvents
+	}
+	return 0
+}
+
+func (x *MetricsResponse) GetForwardedEvents() int64 {
+	if x != nil {
+		return x.ForwardedEvents
+	}
+	return 0
+}
+
+func (x *MetricsResponse) GetErrorEvents() int64 {
+	if x != nil {
+		return x.ErrorEvents
+	}
+	return 0
+}
+
+func (x *MetricsResponse) GetActiveStreams() int32 {
+	if x != nil {
+		return x.ActiveStreams
+	}
+	return 0
+}
+
+func (x *MetricsResponse) GetUptime() int64 {
+	if x != nil {
+		return x.Uptime
+	}
+	return 0
+}
+
 var File_proto_mcp_proto protoreflect.FileDescriptor
 
 const file_proto_mcp_proto_rawDesc = "" +
@@ -445,30 +584,43 @@ const file_proto_mcp_proto_rawDesc = "" +
 	"\bmetadata\x18\x06 \x03(\v2(.mcp.v1.IngestEventRequest.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x82\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9a\x01\n" +
 	"\x13IngestEventResponse\x12\x19\n" +
 	"\bevent_id\x18\x01 \x01(\tR\aeventId\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12\x1c\n" +
-	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\"w\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\"w\n" +
 	"\x13StreamEventsRequest\x12\x1f\n" +
 	"\vevent_types\x18\x01 \x03(\tR\n" +
 	"eventTypes\x12'\n" +
 	"\x0fstart_timestamp\x18\x02 \x01(\x03R\x0estartTimestamp\x12\x16\n" +
 	"\x06follow\x18\x03 \x01(\bR\x06follow\"\x14\n" +
-	"\x12HealthCheckRequest\"\xc7\x01\n" +
+	"\x12HealthCheckRequest\"\xdf\x01\n" +
 	"\x13HealthCheckResponse\x12\x18\n" +
 	"\ahealthy\x18\x01 \x01(\bR\ahealthy\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12B\n" +
-	"\adetails\x18\x03 \x03(\v2(.mcp.v1.HealthCheckResponse.DetailsEntryR\adetails\x1a:\n" +
+	"\adetails\x18\x03 \x03(\v2(.mcp.v1.HealthCheckResponse.DetailsEntryR\adetails\x12\x16\n" +
+	"\x06uptime\x18\x04 \x01(\x03R\x06uptime\x1a:\n" +
 	"\fDetailsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\xd8\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x10\n" +
+	"\x0eMetricsRequest\"\xe6\x01\n" +
+	"\x0fMetricsResponse\x12!\n" +
+	"\ftotal_events\x18\x01 \x01(\x03R\vtotalEvents\x12#\n" +
+	"\rstream_events\x18\x02 \x01(\x03R\fstreamEvents\x12)\n" +
+	"\x10forwarded_events\x18\x03 \x01(\x03R\x0fforwardedEvents\x12!\n" +
+	"\ferror_events\x18\x04 \x01(\x03R\verrorEvents\x12%\n" +
+	"\x0eactive_streams\x18\x05 \x01(\x05R\ractiveStreams\x12\x16\n" +
+	"\x06uptime\x18\x06 \x01(\x03R\x06uptime2\xc8\x02\n" +
 	"\n" +
 	"MCPService\x12F\n" +
 	"\vIngestEvent\x12\x1a.mcp.v1.IngestEventRequest\x1a\x1b.mcp.v1.IngestEventResponse\x12<\n" +
-	"\fStreamEvents\x12\x1b.mcp.v1.StreamEventsRequest\x1a\r.mcp.v1.Event0\x01\x12D\n" +
-	"\tGetHealth\x12\x1a.mcp.v1.HealthCheckRequest\x1a\x1b.mcp.v1.HealthCheckResponseB5Z3github.com/tributary-ai-services/tas-mcp/gen/mcp/v1b\x06proto3"
+	"\fStreamEvents\x12\x1b.mcp.v1.StreamEventsRequest\x1a\r.mcp.v1.Event0\x01\x12/\n" +
+	"\vEventStream\x12\r.mcp.v1.Event\x1a\r.mcp.v1.Event(\x010\x01\x12D\n" +
+	"\tGetHealth\x12\x1a.mcp.v1.HealthCheckRequest\x1a\x1b.mcp.v1.HealthCheckResponse\x12=\n" +
+	"\n" +
+	"GetMetrics\x12\x16.mcp.v1.MetricsRequest\x1a\x17.mcp.v1.MetricsResponseB5Z3github.com/tributary-ai-services/tas-mcp/gen/mcp/v1b\x06proto3"
 
 var (
 	file_proto_mcp_proto_rawDescOnce sync.Once
@@ -482,7 +634,7 @@ func file_proto_mcp_proto_rawDescGZIP() []byte {
 	return file_proto_mcp_proto_rawDescData
 }
 
-var file_proto_mcp_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_proto_mcp_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_proto_mcp_proto_goTypes = []any{
 	(*Event)(nil),               // 0: mcp.v1.Event
 	(*IngestEventRequest)(nil),  // 1: mcp.v1.IngestEventRequest
@@ -490,25 +642,31 @@ var file_proto_mcp_proto_goTypes = []any{
 	(*StreamEventsRequest)(nil), // 3: mcp.v1.StreamEventsRequest
 	(*HealthCheckRequest)(nil),  // 4: mcp.v1.HealthCheckRequest
 	(*HealthCheckResponse)(nil), // 5: mcp.v1.HealthCheckResponse
-	nil,                         // 6: mcp.v1.Event.MetadataEntry
-	nil,                         // 7: mcp.v1.IngestEventRequest.MetadataEntry
-	nil,                         // 8: mcp.v1.HealthCheckResponse.DetailsEntry
+	(*MetricsRequest)(nil),      // 6: mcp.v1.MetricsRequest
+	(*MetricsResponse)(nil),     // 7: mcp.v1.MetricsResponse
+	nil,                         // 8: mcp.v1.Event.MetadataEntry
+	nil,                         // 9: mcp.v1.IngestEventRequest.MetadataEntry
+	nil,                         // 10: mcp.v1.HealthCheckResponse.DetailsEntry
 }
 var file_proto_mcp_proto_depIdxs = []int32{
-	6, // 0: mcp.v1.Event.metadata:type_name -> mcp.v1.Event.MetadataEntry
-	7, // 1: mcp.v1.IngestEventRequest.metadata:type_name -> mcp.v1.IngestEventRequest.MetadataEntry
-	8, // 2: mcp.v1.HealthCheckResponse.details:type_name -> mcp.v1.HealthCheckResponse.DetailsEntry
-	1, // 3: mcp.v1.MCPService.IngestEvent:input_type -> mcp.v1.IngestEventRequest
-	3, // 4: mcp.v1.MCPService.StreamEvents:input_type -> mcp.v1.StreamEventsRequest
-	4, // 5: mcp.v1.MCPService.GetHealth:input_type -> mcp.v1.HealthCheckRequest
-	2, // 6: mcp.v1.MCPService.IngestEvent:output_type -> mcp.v1.IngestEventResponse
-	0, // 7: mcp.v1.MCPService.StreamEvents:output_type -> mcp.v1.Event
-	5, // 8: mcp.v1.MCPService.GetHealth:output_type -> mcp.v1.HealthCheckResponse
-	6, // [6:9] is the sub-list for method output_type
-	3, // [3:6] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	8,  // 0: mcp.v1.Event.metadata:type_name -> mcp.v1.Event.MetadataEntry
+	9,  // 1: mcp.v1.IngestEventRequest.metadata:type_name -> mcp.v1.IngestEventRequest.MetadataEntry
+	10, // 2: mcp.v1.HealthCheckResponse.details:type_name -> mcp.v1.HealthCheckResponse.DetailsEntry
+	1,  // 3: mcp.v1.MCPService.IngestEvent:input_type -> mcp.v1.IngestEventRequest
+	3,  // 4: mcp.v1.MCPService.StreamEvents:input_type -> mcp.v1.StreamEventsRequest
+	0,  // 5: mcp.v1.MCPService.EventStream:input_type -> mcp.v1.Event
+	4,  // 6: mcp.v1.MCPService.GetHealth:input_type -> mcp.v1.HealthCheckRequest
+	6,  // 7: mcp.v1.MCPService.GetMetrics:input_type -> mcp.v1.MetricsRequest
+	2,  // 8: mcp.v1.MCPService.IngestEvent:output_type -> mcp.v1.IngestEventResponse
+	0,  // 9: mcp.v1.MCPService.StreamEvents:output_type -> mcp.v1.Event
+	0,  // 10: mcp.v1.MCPService.EventStream:output_type -> mcp.v1.Event
+	5,  // 11: mcp.v1.MCPService.GetHealth:output_type -> mcp.v1.HealthCheckResponse
+	7,  // 12: mcp.v1.MCPService.GetMetrics:output_type -> mcp.v1.MetricsResponse
+	8,  // [8:13] is the sub-list for method output_type
+	3,  // [3:8] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_proto_mcp_proto_init() }
@@ -522,7 +680,7 @@ func file_proto_mcp_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_mcp_proto_rawDesc), len(file_proto_mcp_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

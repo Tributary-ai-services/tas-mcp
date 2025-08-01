@@ -1,9 +1,12 @@
+// Package forwarding provides event forwarding functionality for the TAS MCP server.
 package forwarding
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -16,48 +19,70 @@ import (
 	"github.com/tributary-ai-services/tas-mcp/internal/config"
 )
 
+// Constants for forwarder configuration
+const (
+	// HealthCheckInterval is the interval between health checks
+	HealthCheckInterval = 30 * time.Second
+	// HealthCheckTimeout is the timeout for health check requests
+	HealthCheckTimeout = 10 * time.Second
+	// MetricsUpdateInterval is the interval for metrics updates
+	MetricsUpdateInterval = 60 * time.Second
+	// MaxResponseTimeHistory is the maximum number of response times to keep
+	MaxResponseTimeHistory = 100
+	// UnhealthyErrorThreshold is the error count threshold for marking a target unhealthy
+	UnhealthyErrorThreshold = 3
+	// UptimePercentageMultiplier is the multiplier for uptime percentage calculation
+	UptimePercentageMultiplier = 100
+	// DefaultUptime is the default uptime percentage
+	DefaultUptime = 100.0
+)
+
 // EventForwarder handles forwarding events to multiple targets
 type EventForwarder struct {
-	logger    *zap.Logger
-	config    *config.ForwardingConfig
-	targets   map[string]*ForwardingTarget
-	mu        sync.RWMutex
-	metrics   *ForwardingMetrics
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	logger  *zap.Logger
+	config  *config.ForwardingConfig
+	targets map[string]*ForwardingTarget
+	mu      sync.RWMutex
+	metrics *ForwardingMetrics
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 }
+
+//revive:disable:exported
 
 // ForwardingTarget represents a destination for event forwarding
 type ForwardingTarget struct {
-	ID          string                    `json:"id"`
-	Name        string                    `json:"name"`
-	Type        ForwardingType            `json:"type"`
-	Endpoint    string                    `json:"endpoint"`
-	Config      *TargetConfig             `json:"config"`
-	Status      TargetStatus              `json:"status"`
-	Client      interface{}               `json:"-"` // gRPC client or HTTP client
-	LastHealthy time.Time                 `json:"last_healthy"`
-	LastError   string                    `json:"last_error,omitempty"`
-	ErrorCount  int                       `json:"error_count"`
-	Rules       []*ForwardingRule         `json:"rules"`
-	Metrics     *TargetMetrics            `json:"metrics"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Type        ForwardingType    `json:"type"`
+	Endpoint    string            `json:"endpoint"`
+	Config      *TargetConfig     `json:"config"`
+	Status      TargetStatus      `json:"status"`
+	Client      interface{}       `json:"-"` // gRPC client or HTTP client
+	LastHealthy time.Time         `json:"last_healthy"`
+	LastError   string            `json:"last_error,omitempty"`
+	ErrorCount  int               `json:"error_count"`
+	Rules       []*ForwardingRule `json:"rules"`
+	Metrics     *TargetMetrics    `json:"metrics"`
 }
 
 // ForwardingType defines the type of forwarding target
 type ForwardingType string
 
+// ForwardingType constants define the supported target types.
 const (
-	ForwardingTypeGRPC     ForwardingType = "grpc"
-	ForwardingTypeHTTP     ForwardingType = "http"
-	ForwardingTypeKafka    ForwardingType = "kafka"
-	ForwardingTypeWebhook  ForwardingType = "webhook"
+	ForwardingTypeGRPC       ForwardingType = "grpc"
+	ForwardingTypeHTTP       ForwardingType = "http"
+	ForwardingTypeKafka      ForwardingType = "kafka"
+	ForwardingTypeWebhook    ForwardingType = "webhook"
 	ForwardingTypeArgoEvents ForwardingType = "argo-events"
 )
 
 // TargetStatus represents the health status of a target
 type TargetStatus string
 
+// TargetStatus constants define the possible health states.
 const (
 	TargetStatusHealthy   TargetStatus = "healthy"
 	TargetStatusUnhealthy TargetStatus = "unhealthy"
@@ -67,14 +92,14 @@ const (
 
 // TargetConfig holds configuration for a forwarding target
 type TargetConfig struct {
-	Timeout         time.Duration     `json:"timeout"`
-	RetryAttempts   int               `json:"retry_attempts"`
-	RetryDelay      time.Duration     `json:"retry_delay"`
-	HealthCheckURL  string            `json:"health_check_url,omitempty"`
-	Headers         map[string]string `json:"headers,omitempty"`
-	Authentication  *AuthConfig       `json:"authentication,omitempty"`
-	BatchSize       int               `json:"batch_size,omitempty"`
-	BatchTimeout    time.Duration     `json:"batch_timeout,omitempty"`
+	Timeout        time.Duration     `json:"timeout"`
+	RetryAttempts  int               `json:"retry_attempts"`
+	RetryDelay     time.Duration     `json:"retry_delay"`
+	HealthCheckURL string            `json:"health_check_url,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Authentication *AuthConfig       `json:"authentication,omitempty"`
+	BatchSize      int               `json:"batch_size,omitempty"`
+	BatchTimeout   time.Duration     `json:"batch_timeout,omitempty"`
 }
 
 // AuthConfig holds authentication configuration
@@ -87,14 +112,14 @@ type AuthConfig struct {
 
 // ForwardingRule defines conditions for event forwarding
 type ForwardingRule struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Enabled     bool                   `json:"enabled"`
-	Priority    int                    `json:"priority"`
-	Conditions  []*RuleCondition       `json:"conditions"`
-	Transform   *EventTransform        `json:"transform,omitempty"`
-	RateLimit   *RateLimit             `json:"rate_limit,omitempty"`
-	Metadata    map[string]string      `json:"metadata,omitempty"`
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Enabled    bool              `json:"enabled"`
+	Priority   int               `json:"priority"`
+	Conditions []*RuleCondition  `json:"conditions"`
+	Transform  *EventTransform   `json:"transform,omitempty"`
+	RateLimit  *RateLimit        `json:"rate_limit,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 
 // RuleCondition defines a condition for rule evaluation
@@ -122,41 +147,41 @@ type RateLimit struct {
 
 // ForwardingMetrics tracks forwarding statistics
 type ForwardingMetrics struct {
-	TotalEvents     int64             `json:"total_events"`
-	ForwardedEvents int64             `json:"forwarded_events"`
-	FailedEvents    int64             `json:"failed_events"`
-	DroppedEvents   int64             `json:"dropped_events"`
+	TotalEvents     int64                     `json:"total_events"`
+	ForwardedEvents int64                     `json:"forwarded_events"`
+	FailedEvents    int64                     `json:"failed_events"`
+	DroppedEvents   int64                     `json:"dropped_events"`
 	TargetMetrics   map[string]*TargetMetrics `json:"target_metrics"`
-	LastUpdated     time.Time         `json:"last_updated"`
+	LastUpdated     time.Time                 `json:"last_updated"`
 	mu              sync.RWMutex
 }
 
 // TargetMetrics tracks metrics for a specific target
 type TargetMetrics struct {
-	EventsSent      int64         `json:"events_sent"`
-	EventsFailed    int64         `json:"events_failed"`
+	EventsSent      int64           `json:"events_sent"`
+	EventsFailed    int64           `json:"events_failed"`
 	ResponseTimes   []time.Duration `json:"-"` // Not serialized, used for calculations
-	AvgResponseTime time.Duration `json:"avg_response_time"`
-	LastError       string        `json:"last_error,omitempty"`
-	LastSuccess     time.Time     `json:"last_success"`
-	Uptime          float64       `json:"uptime_percentage"`
+	AvgResponseTime time.Duration   `json:"avg_response_time"`
+	LastError       string          `json:"last_error,omitempty"`
+	LastSuccess     time.Time       `json:"last_success"`
+	Uptime          float64         `json:"uptime_percentage"`
 }
 
 // EventToForward represents an event ready for forwarding
 type EventToForward struct {
-	Event     *mcpv1.Event          `json:"event"`
-	Targets   []string              `json:"targets"`
-	Rules     []string              `json:"rules"`
-	Metadata  map[string]string     `json:"metadata"`
-	Timestamp time.Time             `json:"timestamp"`
-	Attempts  int                   `json:"attempts"`
-	MaxAttempts int                 `json:"max_attempts"`
+	Event       *mcpv1.Event      `json:"event"`
+	Targets     []string          `json:"targets"`
+	Rules       []string          `json:"rules"`
+	Metadata    map[string]string `json:"metadata"`
+	Timestamp   time.Time         `json:"timestamp"`
+	Attempts    int               `json:"attempts"`
+	MaxAttempts int               `json:"max_attempts"`
 }
 
 // NewEventForwarder creates a new event forwarder
 func NewEventForwarder(logger *zap.Logger, config *config.ForwardingConfig) *EventForwarder {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &EventForwarder{
 		logger:  logger,
 		config:  config,
@@ -187,9 +212,9 @@ func (f *EventForwarder) Start() error {
 	f.wg.Add(1)
 	go f.metricsRoutine()
 
-	f.logger.Info("Event forwarder started successfully", 
+	f.logger.Info("Event forwarder started successfully",
 		zap.Int("targets", len(f.targets)))
-	
+
 	return nil
 }
 
@@ -198,15 +223,15 @@ func (f *EventForwarder) Stop() {
 	f.logger.Info("Stopping event forwarder")
 	f.cancel()
 	f.wg.Wait()
-	
+
 	// Close connections to targets
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	
+
 	for _, target := range f.targets {
 		f.closeTargetConnection(target)
 	}
-	
+
 	f.logger.Info("Event forwarder stopped")
 }
 
@@ -270,7 +295,7 @@ func (f *EventForwarder) AddTarget(target *ForwardingTarget) error {
 	f.targets[target.ID] = target
 	f.metrics.TargetMetrics[target.ID] = &TargetMetrics{
 		LastSuccess: time.Now(),
-		Uptime:      100.0,
+		Uptime:      DefaultUptime,
 	}
 
 	f.logger.Info("Added forwarding target",
@@ -319,7 +344,7 @@ func (f *EventForwarder) GetTargets() map[string]*ForwardingTarget {
 func (f *EventForwarder) GetMetrics() *ForwardingMetrics {
 	f.metrics.mu.RLock()
 	defer f.metrics.mu.RUnlock()
-	
+
 	// Create a copy to avoid race conditions
 	metrics := &ForwardingMetrics{
 		TotalEvents:     f.metrics.TotalEvents,
@@ -345,6 +370,8 @@ func (f *EventForwarder) GetMetrics() *ForwardingMetrics {
 }
 
 // loadTargets loads initial targets from configuration
+//
+//nolint:unparam // error return is for future use
 func (f *EventForwarder) loadTargets() error {
 	for _, targetConfig := range f.config.Targets {
 		// Convert config types to internal types
@@ -359,7 +386,7 @@ func (f *EventForwarder) loadTargets() error {
 					Negate:   cond.Negate,
 				})
 			}
-			
+
 			rules = append(rules, &ForwardingRule{
 				ID:         rule.ID,
 				Name:       rule.Name,
@@ -457,11 +484,11 @@ func (f *EventForwarder) evaluateRule(rule *ForwardingRule, event *mcpv1.Event) 
 func (f *EventForwarder) evaluateCondition(condition *RuleCondition, event *mcpv1.Event) bool {
 	value := f.extractFieldValue(condition.Field, event)
 	result := f.compareValues(value, condition.Operator, condition.Value)
-	
+
 	if condition.Negate {
 		result = !result
 	}
-	
+
 	return result
 }
 
@@ -512,7 +539,7 @@ func (f *EventForwarder) compareValues(actual interface{}, operator string, expe
 	case "contains":
 		if actualStr, ok := actual.(string); ok {
 			if expectedStr, ok := expected.(string); ok {
-				return len(expectedStr) > 0 && strings.Contains(actualStr, expectedStr)
+				return expectedStr != "" && strings.Contains(actualStr, expectedStr)
 			}
 		}
 		return false
@@ -535,11 +562,11 @@ func (f *EventForwarder) compareValues(actual interface{}, operator string, expe
 func (f *EventForwarder) compareNumeric(a, b interface{}, compareFn func(float64, float64) bool) bool {
 	aFloat, aOk := f.toFloat64(a)
 	bFloat, bOk := f.toFloat64(b)
-	
+
 	if !aOk || !bOk {
 		return false
 	}
-	
+
 	return compareFn(aFloat, bFloat)
 }
 
@@ -661,16 +688,80 @@ func (f *EventForwarder) forwardGRPC(ctx context.Context, event *mcpv1.Event, ta
 
 // forwardHTTP forwards an event via HTTP
 func (f *EventForwarder) forwardHTTP(ctx context.Context, event *mcpv1.Event, target *ForwardingTarget) error {
-	// Implementation would use HTTP client to POST event
-	f.logger.Debug("Event would be forwarded via HTTP",
+	f.logger.Debug("Forwarding event via HTTP",
 		zap.String("target_id", target.ID),
 		zap.String("endpoint", target.Endpoint),
 		zap.String("event_id", event.EventId))
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: target.Config.Timeout,
+	}
+
+	// Marshal event to JSON
+	eventData, err := json.Marshal(event)
+	if err != nil {
+		f.logger.Error("Failed to marshal event for HTTP forwarding",
+			zap.String("target_id", target.ID),
+			zap.String("event_id", event.EventId),
+			zap.Error(err))
+		return err
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", target.Endpoint, bytes.NewReader(eventData))
+	if err != nil {
+		f.logger.Error("Failed to create HTTP request",
+			zap.String("target_id", target.ID),
+			zap.String("event_id", event.EventId),
+			zap.Error(err))
+		return err
+	}
+
+	// Set headers
+	for key, value := range target.Config.Headers {
+		req.Header.Set(key, value)
+	}
+
+	// Send request
+	resp, err := client.Do(req)
+	if err != nil {
+		f.logger.Error("Failed to send HTTP request",
+			zap.String("target_id", target.ID),
+			zap.String("event_id", event.EventId),
+			zap.Error(err))
+		return err
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			f.logger.Warn("Failed to close response body",
+				zap.String("target_id", target.ID),
+				zap.String("event_id", event.EventId),
+				zap.Error(closeErr))
+		}
+	}()
+
+	// Check response status
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		f.logger.Error("HTTP forwarding failed",
+			zap.String("target_id", target.ID),
+			zap.String("event_id", event.EventId),
+			zap.Int("status_code", resp.StatusCode))
+		return fmt.Errorf("HTTP forwarding failed with status %d", resp.StatusCode)
+	}
+
+	f.logger.Debug("Event successfully forwarded via HTTP",
+		zap.String("target_id", target.ID),
+		zap.String("event_id", event.EventId),
+		zap.Int("status_code", resp.StatusCode))
+
 	return nil
 }
 
 // forwardKafka forwards an event to Kafka
-func (f *EventForwarder) forwardKafka(ctx context.Context, event *mcpv1.Event, target *ForwardingTarget) error {
+//
+//nolint:unparam // error return is for future use
+func (f *EventForwarder) forwardKafka(_ context.Context, event *mcpv1.Event, target *ForwardingTarget) error {
 	// Implementation would use Kafka producer
 	f.logger.Debug("Event would be forwarded to Kafka",
 		zap.String("target_id", target.ID),
@@ -680,7 +771,9 @@ func (f *EventForwarder) forwardKafka(ctx context.Context, event *mcpv1.Event, t
 }
 
 // forwardArgoEvents forwards an event to Argo Events
-func (f *EventForwarder) forwardArgoEvents(ctx context.Context, event *mcpv1.Event, target *ForwardingTarget) error {
+//
+//nolint:unparam // error return is for future use
+func (f *EventForwarder) forwardArgoEvents(_ context.Context, event *mcpv1.Event, target *ForwardingTarget) error {
 	// Implementation would send to Argo Events webhook
 	f.logger.Debug("Event would be forwarded to Argo Events",
 		zap.String("target_id", target.ID),
@@ -721,7 +814,7 @@ func (f *EventForwarder) initializeTarget(target *ForwardingTarget) error {
 
 // initializeGRPCTarget initializes a gRPC target
 func (f *EventForwarder) initializeGRPCTarget(target *ForwardingTarget) error {
-	conn, err := grpc.Dial(target.Endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(target.Endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("failed to connect to gRPC endpoint: %w", err)
 	}
@@ -760,10 +853,9 @@ func (f *EventForwarder) initializeArgoEventsTarget(target *ForwardingTarget) er
 
 // closeTargetConnection closes a target's connection
 func (f *EventForwarder) closeTargetConnection(target *ForwardingTarget) {
-	switch target.Type {
-	case ForwardingTypeGRPC:
+	if target.Type == ForwardingTypeGRPC {
 		if conn, ok := target.Client.(*grpc.ClientConn); ok {
-			conn.Close()
+			_ = conn.Close()
 		}
 	}
 }
@@ -783,12 +875,12 @@ func (f *EventForwarder) updateTargetMetrics(targetID string, duration time.Dura
 		metrics.EventsSent++
 		metrics.LastSuccess = time.Now()
 		metrics.ResponseTimes = append(metrics.ResponseTimes, duration)
-		
+
 		// Calculate average response time (keep last 100 measurements)
-		if len(metrics.ResponseTimes) > 100 {
+		if len(metrics.ResponseTimes) > MaxResponseTimeHistory {
 			metrics.ResponseTimes = metrics.ResponseTimes[1:]
 		}
-		
+
 		var total time.Duration
 		for _, rt := range metrics.ResponseTimes {
 			total += rt
@@ -805,8 +897,8 @@ func (f *EventForwarder) updateTargetMetrics(targetID string, duration time.Dura
 // healthCheckRoutine performs periodic health checks on targets
 func (f *EventForwarder) healthCheckRoutine() {
 	defer f.wg.Done()
-	
-	ticker := time.NewTicker(30 * time.Second)
+
+	ticker := time.NewTicker(HealthCheckInterval)
 	defer ticker.Stop()
 
 	for {
@@ -835,7 +927,7 @@ func (f *EventForwarder) performHealthChecks() {
 
 // checkTargetHealth checks the health of a specific target
 func (f *EventForwarder) checkTargetHealth(target *ForwardingTarget) {
-	ctx, cancel := context.WithTimeout(f.ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(f.ctx, HealthCheckTimeout)
 	defer cancel()
 
 	healthy := false
@@ -855,7 +947,7 @@ func (f *EventForwarder) checkTargetHealth(target *ForwardingTarget) {
 		target.ErrorCount = 0
 	} else {
 		target.ErrorCount++
-		if target.ErrorCount >= 3 {
+		if target.ErrorCount >= UnhealthyErrorThreshold {
 			target.Status = TargetStatusUnhealthy
 		}
 	}
@@ -874,7 +966,7 @@ func (f *EventForwarder) checkGRPCHealth(ctx context.Context, target *Forwarding
 }
 
 // checkHTTPHealth checks HTTP target health
-func (f *EventForwarder) checkHTTPHealth(ctx context.Context, target *ForwardingTarget) bool {
+func (f *EventForwarder) checkHTTPHealth(_ context.Context, _ *ForwardingTarget) bool {
 	// HTTP health check implementation would go here
 	return true
 }
@@ -882,8 +974,8 @@ func (f *EventForwarder) checkHTTPHealth(ctx context.Context, target *Forwarding
 // metricsRoutine periodically updates metrics
 func (f *EventForwarder) metricsRoutine() {
 	defer f.wg.Done()
-	
-	ticker := time.NewTicker(60 * time.Second)
+
+	ticker := time.NewTicker(MetricsUpdateInterval)
 	defer ticker.Stop()
 
 	for {
@@ -905,12 +997,13 @@ func (f *EventForwarder) updateMetrics() {
 	for _, metrics := range f.metrics.TargetMetrics {
 		total := metrics.EventsSent + metrics.EventsFailed
 		if total > 0 {
-			metrics.Uptime = float64(metrics.EventsSent) / float64(total) * 100
+			metrics.Uptime = float64(metrics.EventsSent) / float64(total) * UptimePercentageMultiplier
 		}
 	}
 
 	f.metrics.LastUpdated = time.Now()
 }
+
 // EvaluateCondition is a public method to evaluate a condition (for testing)
 func (f *EventForwarder) EvaluateCondition(event *mcpv1.Event, condition *config.RuleCondition) bool {
 	ruleCondition := &RuleCondition{

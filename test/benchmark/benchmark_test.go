@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	mcpv1 "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1"
 	"github.com/tributary-ai-services/tas-mcp/internal/config"
 	"github.com/tributary-ai-services/tas-mcp/internal/forwarding"
 	grpcserver "github.com/tributary-ai-services/tas-mcp/internal/grpc"
 	httpserver "github.com/tributary-ai-services/tas-mcp/internal/http"
-	"github.com/tributary-ai-services/tas-mcp/internal/logger"
-	"go.uber.org/zap"
 )
 
 // BenchmarkSetup holds common benchmark setup
@@ -30,26 +30,26 @@ type BenchmarkSetup struct {
 func NewBenchmarkSetup(b *testing.B) *BenchmarkSetup {
 	b.Helper()
 
-	logger := zap.NewNop() // Use no-op logger for benchmarks
+	zapLogger := zap.NewNop() // Use no-op logger for benchmarks
 
 	forwardingConfig := &config.ForwardingConfig{
-		Enabled:             false, // Disable forwarding for pure ingestion benchmarks
+		Enabled:              false, // Disable forwarding for pure ingestion benchmarks
 		DefaultRetryAttempts: 1,
-		DefaultTimeout:      1 * time.Second,
-		BufferSize:          10000,
-		Workers:             4,
-		Targets:             []*config.TargetConfiguration{},
+		DefaultTimeout:       1 * time.Second,
+		BufferSize:           10000,
+		Workers:              4,
+		Targets:              []*config.TargetConfiguration{},
 	}
 
-	forwarder := forwarding.NewEventForwarder(logger, forwardingConfig)
-	grpcServer := grpcserver.NewMCPServer(logger, forwarder)
-	httpServer := httpserver.NewServer(logger, grpcServer, forwarder)
+	forwarder := forwarding.NewEventForwarder(zapLogger, forwardingConfig)
+	grpcServer := grpcserver.NewMCPServer(zapLogger, forwarder)
+	httpServer := httpserver.NewServer(zapLogger, grpcServer, forwarder)
 
 	return &BenchmarkSetup{
 		grpcServer: grpcServer,
 		httpServer: httpServer,
 		forwarder:  forwarder,
-		logger:     logger,
+		logger:     zapLogger,
 	}
 }
 
@@ -171,19 +171,20 @@ func BenchmarkHTTPBatchEventIngestion(b *testing.B) {
 
 func BenchmarkEventForwarding(b *testing.B) {
 	// Create a mock target server
-	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status": "ok"}`))
 	}))
 	defer targetServer.Close()
 
-	logger := zap.NewNop()
+	zapLogger := zap.NewNop()
+	_ = zapLogger // Suppress unused variable warning
 	forwardingConfig := &config.ForwardingConfig{
-		Enabled:             true,
+		Enabled:              true,
 		DefaultRetryAttempts: 1,
-		DefaultTimeout:      5 * time.Second,
-		BufferSize:          10000,
-		Workers:             4,
+		DefaultTimeout:       5 * time.Second,
+		BufferSize:           10000,
+		Workers:              4,
 		Targets: []*config.TargetConfiguration{
 			{
 				ID:       "bench-target",
@@ -211,7 +212,7 @@ func BenchmarkEventForwarding(b *testing.B) {
 		},
 	}
 
-	forwarder := forwarding.NewEventForwarder(logger, forwardingConfig)
+	forwarder := forwarding.NewEventForwarder(zapLogger, forwardingConfig)
 	forwarder.Start()
 	defer forwarder.Stop()
 
@@ -237,7 +238,8 @@ func BenchmarkEventForwarding(b *testing.B) {
 }
 
 func BenchmarkRuleEvaluation(b *testing.B) {
-	logger := zap.NewNop()
+	zapLogger := zap.NewNop()
+	_ = zapLogger // Suppress unused variable warning
 	forwarder := &forwarding.EventForwarder{}
 
 	event := &mcpv1.Event{

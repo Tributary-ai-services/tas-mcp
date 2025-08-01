@@ -18,7 +18,7 @@ Welcome to the TAS MCP Server development guide! This document provides comprehe
 
 ### Prerequisites
 
-- **Go 1.21+** - [Install Go](https://golang.org/doc/install)
+- **Go 1.22+** - [Install Go](https://golang.org/doc/install)
 - **Docker** - [Install Docker](https://docs.docker.com/get-docker/)
 - **Make** - Usually pre-installed on Unix systems
 - **Git** - [Install Git](https://git-scm.com/downloads)

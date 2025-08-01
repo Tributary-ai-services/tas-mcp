@@ -31,7 +31,7 @@ curl -sSL https://raw.githubusercontent.com/tributary-ai-services/tas-mcp/main/d
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.22+
 - Make
 - Docker (optional)
 
@@ -169,7 +169,7 @@ volumes:
 
 ```dockerfile
 # Dockerfile.prod
-FROM golang:1.21-alpine AS builder
+FROM golang:1.22-alpine AS builder
 WORKDIR /app
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o tas-mcp ./cmd/server
