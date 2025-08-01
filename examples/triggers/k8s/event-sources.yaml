@@ -1,0 +1,87 @@
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: tas-mcp-webhook-source
+  namespace: argo-events
+spec:
+  webhook:
+    # GitHub webhook example
+    github-webhook:
+      port: "12000"
+      endpoint: /github
+      method: POST
+    
+    # Generic HTTP webhook
+    http-webhook:
+      port: "12001" 
+      endpoint: /webhook
+      method: POST
+
+    # Custom API webhook for TAS MCP
+    tas-webhook:
+      port: "12002"
+      endpoint: /tas/events
+      method: POST
+      
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: tas-mcp-kafka-source
+  namespace: argo-events
+spec:
+  kafka:
+    user-events:
+      url: kafka-broker.kafka:9092
+      topic: user-events
+      partition: "0"
+      
+    system-events:
+      url: kafka-broker.kafka:9092  
+      topic: system-events
+      partition: "0"
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: tas-mcp-calendar-source
+  namespace: argo-events
+spec:
+  calendar:
+    # Scheduled trigger every 5 minutes
+    interval-5m:
+      schedule: "*/5 * * * *"
+      
+    # Daily trigger at 9 AM
+    daily-9am:
+      schedule: "0 9 * * *"
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource  
+metadata:
+  name: tas-mcp-file-source
+  namespace: argo-events
+spec:
+  file:
+    config-changes:
+      eventType: "MODIFY"
+      watchPathConfig:
+        directory: /etc/config
+        path: "config.yaml"
+        pathRegexp: ".*\\.yaml$"
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: tas-mcp-redis-source
+  namespace: argo-events
+spec:
+  redis:
+    notifications:
+      hostAddress: redis-service.redis:6379
+      channels:
+      - "notifications"
+      - "alerts"

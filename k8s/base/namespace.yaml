@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tas-mcp
+  labels:
+    name: tas-mcp
+    app: tas-mcp

@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package mcp.v1;
+option go_package = "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1";
+
+// Event represents a structured event in the MCP system
+message Event {
+  string event_id = 1;
+  string event_type = 2;
+  string source = 3;
+  int64 timestamp = 4;
+  string data = 5; // JSON data payload
+  map<string, string> metadata = 6;
+}
+
+// IngestEventRequest represents a request to ingest an event
+message IngestEventRequest {
+  string event_id = 1;
+  string event_type = 2;
+  string source = 3;
+  int64 timestamp = 4;
+  string data = 5; // JSON data payload
+  map<string, string> metadata = 6;
+}
+
+// IngestEventResponse represents the response to an event ingestion
+message IngestEventResponse {
+  string event_id = 1;
+  bool success = 2;
+  string message = 3;
+  int64 timestamp = 4;
+}
+
+// StreamEventsRequest represents a request to stream events
+message StreamEventsRequest {
+  repeated string event_types = 1; // Filter by event types
+  int64 start_timestamp = 2; // Start streaming from this timestamp
+  bool follow = 3; // Continue streaming new events
+}
+
+// HealthCheckRequest represents a health check request
+message HealthCheckRequest {}
+
+// HealthCheckResponse represents a health check response
+message HealthCheckResponse {
+  bool healthy = 1;
+  string status = 2;
+  map<string, string> details = 3;
+}
+
+// MCPService defines the main service interface
+service MCPService {
+  // Ingest a single event
+  rpc IngestEvent(IngestEventRequest) returns (IngestEventResponse);
+  
+  // Stream events (server-side streaming)
+  rpc StreamEvents(StreamEventsRequest) returns (stream Event);
+  
+  // Health check
+  rpc GetHealth(HealthCheckRequest) returns (HealthCheckResponse);
+}

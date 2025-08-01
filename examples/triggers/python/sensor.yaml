@@ -1,0 +1,324 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: tas-mcp-python-triggers
+  namespace: argo-events
+spec:
+  template:
+    serviceAccountName: argo-events-sa
+  dependencies:
+  - name: webhook-dep
+    eventSourceName: tas-mcp-webhook-source
+    eventName: http-webhook
+  - name: kafka-dep
+    eventSourceName: tas-mcp-kafka-source
+    eventName: system-events
+  - name: redis-dep
+    eventSourceName: tas-mcp-redis-source
+    eventName: notifications
+  - name: file-dep
+    eventSourceName: tas-mcp-file-source
+    eventName: config-changes
+
+  triggers:
+  - template:
+      name: python-webhook-trigger
+      conditions: webhook-dep
+      http:
+        url: http://tas-mcp-python-triggers:8080/webhook/generic
+        payload:
+        - src:
+            dependencyName: webhook-dep
+            dataKey: body
+          dest: data
+        - src:
+            dependencyName: webhook-dep  
+            dataKey: headers
+          dest: metadata
+        method: POST
+        headers:
+          Content-Type: application/json
+          X-Event-Source: webhook
+
+  - template:
+      name: python-kafka-trigger
+      conditions: kafka-dep
+      http:
+        url: http://tas-mcp-python-triggers:8080/webhook/kafka
+        payload:
+        - src:
+            dependencyName: kafka-dep
+            dataKey: body
+          dest: data
+        - src:
+            value: kafka-system-events
+          dest: source
+        - src:
+            value: system.event
+          dest: event_type
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  - template:
+      name: python-redis-trigger
+      conditions: redis-dep
+      http:
+        url: http://tas-mcp-python-triggers:8080/webhook/generic
+        payload:
+        - src:
+            dependencyName: redis-dep
+            dataKey: body
+          dest: data
+        - src:
+            value: redis-notifications
+          dest: source
+        - src:
+            value: notification.received
+          dest: event_type
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  - template:
+      name: config-change-trigger
+      conditions: file-dep
+      http:
+        url: http://tas-mcp-python-triggers:8080/webhook/generic
+        payload:
+        - src:
+            dependencyName: file-dep
+            dataKey: body
+          dest: data
+        - src:
+            value: file-watcher
+          dest: source
+        - src:
+            value: config.changed
+          dest: event_type
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  # Python-specific custom trigger for ML model training
+  - template:
+      name: ml-training-trigger
+      conditions: kafka-dep
+      script:
+        source: |
+          import json
+          import asyncio
+          import aiohttp
+          
+          async def trigger_ml_training(event_data):
+              """Trigger ML model training pipeline."""
+              
+              # Parse event data
+              data = json.loads(event_data)
+              
+              if data.get('event_type') == 'dataset.updated':
+                  training_config = {
+                      'event_id': data.get('event_id'),
+                      'event_type': 'ml.training_requested',
+                      'source': 'ml-pipeline',
+                      'data': {
+                          'dataset_id': data['data'].get('dataset_id'),
+                          'model_type': data['data'].get('model_type', 'default'),
+                          'priority': 'high' if data['data'].get('size', 0) > 1000000 else 'normal',
+                          'auto_deploy': data['data'].get('environment') == 'production'
+                      },
+                      'metadata': {
+                          'triggered_by': 'argo-sensor',
+                          'pipeline': 'ml-training',
+                          'timestamp': data.get('timestamp')
+                      }
+                  }
+                  
+                  # Send to Python trigger handler
+                  async with aiohttp.ClientSession() as session:
+                      async with session.post(
+                          'http://tas-mcp-python-triggers:8080/webhook/generic',
+                          json=training_config,
+                          headers={'Content-Type': 'application/json'}
+                      ) as response:
+                          result = await response.text()
+                          print(f"ML training trigger sent: {result}")
+          
+          # Execute the trigger
+          event_data = '''{{ .Input.kafka-dep.Body }}'''
+          asyncio.run(trigger_ml_training(event_data))
+
+  # Advanced data processing trigger
+  - template:
+      name: data-processing-pipeline
+      conditions: kafka-dep
+      custom:
+        trigger:
+          source:
+            configmap:
+              name: python-data-processor
+              key: processor.py
+        parameters:
+        - src:
+            dependencyName: kafka-dep
+            dataKey: body.data.file_path
+          dest: input_file
+        - src:
+            dependencyName: kafka-dep
+            dataKey: body.data.processing_type
+          dest: processing_type
+        - src:
+            value: "http://tas-mcp-python-triggers:8080/webhook/generic"
+          dest: callback_url
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: python-data-processor
+  namespace: argo-events
+data:
+  processor.py: |
+    #!/usr/bin/env python3
+    import json
+    import sys
+    import asyncio
+    import aiohttp
+    from pathlib import Path
+    
+    async def process_data(input_file, processing_type, callback_url):
+        """Process data file and send results."""
+        
+        try:
+            # Simulate data processing
+            file_path = Path(input_file)
+            if not file_path.exists():
+                raise FileNotFoundError(f"File not found: {input_file}")
+            
+            # Different processing based on type
+            if processing_type == "csv":
+                # CSV processing logic
+                result = {"records_processed": 1000, "format": "csv"}
+            elif processing_type == "json":
+                # JSON processing logic  
+                result = {"objects_processed": 500, "format": "json"}
+            else:
+                # Default processing
+                result = {"bytes_processed": file_path.stat().st_size}
+            
+            # Send completion event
+            completion_event = {
+                "event_id": f"proc_{int(time.time())}",
+                "event_type": "data.processing_completed",
+                "source": "data-processor",
+                "data": {
+                    "input_file": str(input_file),
+                    "processing_type": processing_type,
+                    "result": result,
+                    "status": "success"
+                }
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(callback_url, json=completion_event) as response:
+                    print(f"Completion event sent: {response.status}")
+                    
+        except Exception as e:
+            # Send error event
+            error_event = {
+                "event_id": f"proc_err_{int(time.time())}",
+                "event_type": "data.processing_failed", 
+                "source": "data-processor",
+                "data": {
+                    "input_file": str(input_file),
+                    "processing_type": processing_type,
+                    "error": str(e),
+                    "status": "error"
+                }
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(callback_url, json=error_event) as response:
+                    print(f"Error event sent: {response.status}")
+    
+    if __name__ == "__main__":
+        import time
+        input_file = sys.argv[1] if len(sys.argv) > 1 else "/tmp/data.csv"
+        processing_type = sys.argv[2] if len(sys.argv) > 2 else "csv"  
+        callback_url = sys.argv[3] if len(sys.argv) > 3 else "http://localhost:8080/webhook/generic"
+        
+        asyncio.run(process_data(input_file, processing_type, callback_url))
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tas-mcp-python-triggers
+  namespace: argo-events
+spec:
+  selector:
+    app: tas-mcp-python-triggers
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tas-mcp-python-triggers
+  namespace: argo-events
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tas-mcp-python-triggers
+  template:
+    metadata:
+      labels:
+        app: tas-mcp-python-triggers
+    spec:
+      serviceAccountName: tas-mcp-trigger-sa
+      containers:
+      - name: trigger-handler
+        image: tas-mcp/python-triggers:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: REDIS_URL
+          value: "redis://redis-service.redis:6379"
+        - name: KAFKA_BROKERS
+          value: "kafka-broker.kafka:9092"
+        - name: MCP_GRPC_ENDPOINT
+          value: "tas-mcp-service:50051"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/config
+          readOnly: true
+      volumes:
+      - name: config-volume
+        configMap:
+          name: python-trigger-config

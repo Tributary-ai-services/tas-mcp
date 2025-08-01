@@ -1,0 +1,144 @@
+{
+  "discoveryTime": "2025-07-31T17:53:34Z",
+  "endpoints": {
+    "live": [
+      {
+        "name": "aws-bedrock",
+        "url": "https://bedrock.us-east-1.amazonaws.com/mcp",
+        "status": "healthy"
+      },
+      {
+        "name": "slack-api",
+        "url": "https://slack.com/api/mcp",
+        "status": "healthy"
+      },
+      {
+        "name": "github-mcp",
+        "url": "https://api.github.com/mcp",
+        "status": "healthy"
+      },
+      {
+        "name": "google-vertex",
+        "url": "https://vertex-ai.googleapis.com/mcp",
+        "status": "healthy"
+      },
+      {
+        "name": "stripe-api",
+        "url": "https://api.stripe.com/mcp",
+        "status": "healthy"
+      },
+      {
+        "name": "twilio-api",
+        "url": "https://api.twilio.com/mcp",
+        "status": "healthy"
+      },
+      {
+        "name": "notion-api",
+        "url": "https://api.notion.com/mcp",
+        "status": "healthy"
+      },
+      {
+        "name": "local-mcp-8080",
+        "url": "http://localhost:8080",
+        "status": "healthy"
+      },
+      {
+        "name": "azure-openai",
+        "url": "https://api.cognitive.microsoft.com/mcp",
+        "status": "healthy"
+      }
+    ],
+    "localhost": [
+      {
+        "name": "TAS MCP Server",
+        "url": "http://localhost:8080/mcp",
+        "type": "development"
+      },
+      {
+        "name": "Memory MCP Server",
+        "url": "http://localhost:3000/mcp",
+        "type": "development"
+      },
+      {
+        "name": "Filesystem MCP Server",
+        "url": "http://localhost:3001/mcp",
+        "type": "development"
+      },
+      {
+        "name": "Git MCP Server",
+        "url": "http://localhost:3002/mcp",
+        "type": "development"
+      },
+      {
+        "name": "SQLite MCP Server",
+        "url": "http://localhost:3003/mcp",
+        "type": "development"
+      },
+      {
+        "name": "Postgres MCP Server",
+        "url": "http://localhost:3004/mcp",
+        "type": "development"
+      },
+      {
+        "name": "Browser MCP Server",
+        "url": "http://localhost:5000/mcp",
+        "type": "development"
+      },
+      {
+        "name": "Docker MCP Server",
+        "url": "http://localhost:6000/mcp",
+        "type": "development"
+      },
+      {
+        "name": "Kubernetes MCP Server",
+        "url": "http://localhost:7000/mcp",
+        "type": "development"
+      },
+      {
+        "name": "Playwright MCP Server",
+        "url": "http://localhost:8000/mcp",
+        "type": "development"
+      },
+      {
+        "name": "Chroma MCP Server",
+        "url": "http://localhost:9000/mcp",
+        "type": "development"
+      }
+    ],
+    "demo": [
+      {
+        "name": "MCP Playground",
+        "url": "https://mcp-playground.anthropic.com",
+        "type": "demo"
+      },
+      {
+        "name": "MCP Demo Environment",
+        "url": "https://demo.mcp-servers.dev",
+        "type": "demo"
+      },
+      {
+        "name": "MCP Try Online",
+        "url": "https://try.modelcontextprotocol.org",
+        "type": "demo"
+      }
+    ],
+    "documentation": [
+      {
+        "name": "Official MCP Documentation",
+        "url": "https://modelcontextprotocol.org/docs",
+        "type": "documentation"
+      },
+      {
+        "name": "MCP Servers Repository",
+        "url": "https://github.com/modelcontextprotocol/servers",
+        "type": "documentation"
+      },
+      {
+        "name": "Awesome MCP Servers",
+        "url": "https://awesome-mcp-servers.dev",
+        "type": "documentation"
+      }
+    ]
+  },
+  "servers": []
+}

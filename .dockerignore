@@ -1,0 +1,66 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# Development files
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Build artifacts
+bin/
+build/
+dist/
+tmp/
+
+# Test files
+coverage.out
+*.test
+
+# Example and template files
+examples/
+templates/
+
+# Kubernetes manifests (already in image)
+k8s/
+manifests/
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Logs
+*.log
+logs/
+
+# Dependencies
+vendor/
+
+# Node modules (if any)
+node_modules/

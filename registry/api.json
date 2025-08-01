@@ -1,0 +1,150 @@
+{
+  "registry": {
+    "name": "Model Context Protocol Server Registry",
+    "description": "Comprehensive catalog of MCP servers and their capabilities",
+    "version": "1.0.0",
+    "lastUpdated": "2024-07-31T18:00:00Z",
+    "apiVersion": "v1",
+    "endpoints": {
+      "full": "https://raw.githubusercontent.com/tributary-ai-services/tas-mcp/main/registry/mcp-servers.json",
+      "free": "https://raw.githubusercontent.com/tributary-ai-services/tas-mcp/main/registry/free-servers.json",
+      "schema": "https://raw.githubusercontent.com/tributary-ai-services/tas-mcp/main/registry/schema.json"
+    }
+  },
+  "statistics": {
+    "totalServers": 10,
+    "categories": {
+      "ai-model": 3,
+      "event-streaming": 2,
+      "workflow-orchestration": 1,
+      "knowledge-base": 1,
+      "database": 1,
+      "monitoring": 1,
+      "communication": 1
+    },
+    "accessTypes": {
+      "free": 8,
+      "freemium": 2,
+      "paid": 0,
+      "enterprise": 0,
+      "private": 0
+    },
+    "protocols": {
+      "http": 10,
+      "grpc": 4,
+      "websocket": 3,
+      "tcp": 2
+    },
+    "deployment": {
+      "docker": 10,
+      "kubernetes": 8,
+      "helm": 3
+    }
+  },
+  "featured": [
+    {
+      "id": "tas-mcp",
+      "name": "TAS MCP Server",
+      "description": "Production-ready event streaming server with Kubernetes support",
+      "category": "event-streaming",
+      "access": "free",
+      "repository": "https://github.com/tributary-ai-services/tas-mcp",
+      "endpoints": {
+        "http": "http://localhost:8080",
+        "grpc": "localhost:50051"
+      },
+      "features": ["Event streaming", "Kubernetes native", "Prometheus metrics"]
+    },
+    {
+      "id": "anthropic-mcp-server",
+      "name": "Anthropic MCP Server",
+      "description": "Reference implementation by Anthropic",
+      "category": "ai-model",
+      "access": "free",
+      "repository": "https://github.com/anthropics/mcp",
+      "features": ["Reference implementation", "Claude integration"]
+    },
+    {
+      "id": "huggingface-mcp-hub",
+      "name": "Hugging Face MCP Hub",
+      "description": "Access to 200,000+ AI models",
+      "category": "ai-model",
+      "access": "freemium",
+      "repository": "https://github.com/huggingface/mcp-hub",
+      "endpoints": {
+        "http": "https://api.huggingface.co/mcp"
+      },
+      "features": ["200k+ models", "Inference API", "Model pipelines"]
+    }
+  ],
+  "quickStart": {
+    "freeServers": [
+      {
+        "name": "TAS MCP Server",
+        "endpoint": "http://localhost:8080",
+        "setup": "docker run -p 8080:8080 -p 50051:50051 tas-mcp:latest"
+      },
+      {
+        "name": "MCP Memory Server",
+        "endpoint": "http://localhost:3000/mcp",
+        "setup": "docker run -p 3000:3000 mcpcommunity/memory-server:latest"
+      },
+      {
+        "name": "SQLite MCP Server",
+        "endpoint": "http://localhost:3001/mcp",
+        "setup": "docker run -p 3001:3001 sqlite/mcp-server:latest"
+      }
+    ]
+  },
+  "categories": [
+    {
+      "id": "ai-model",
+      "name": "AI Model Servers",
+      "description": "Large language model integrations and AI inference",
+      "count": 3,
+      "examples": ["Anthropic MCP Server", "OpenAI MCP Bridge", "Hugging Face MCP Hub"]
+    },
+    {
+      "id": "event-streaming",
+      "name": "Event Streaming",
+      "description": "Real-time event processing and message forwarding",
+      "count": 2,
+      "examples": ["TAS MCP Server", "Apache Kafka MCP Bridge"]
+    },
+    {
+      "id": "database",
+      "name": "Database Integration",
+      "description": "Database connectivity and data storage solutions",
+      "count": 1,
+      "examples": ["Redis MCP Cache Server"]
+    },
+    {
+      "id": "workflow-orchestration",
+      "name": "Workflow Orchestration",
+      "description": "Complex workflow and agent coordination systems",
+      "count": 1,
+      "examples": ["LangChain MCP Server"]
+    },
+    {
+      "id": "knowledge-base",
+      "name": "Knowledge & Search",
+      "description": "Vector databases and search capabilities",
+      "count": 1,
+      "examples": ["Elasticsearch MCP Connector"]
+    },
+    {
+      "id": "monitoring",
+      "name": "Monitoring & Observability",
+      "description": "Metrics collection and system monitoring",
+      "count": 1,
+      "examples": ["Prometheus MCP Metrics Server"]
+    },
+    {
+      "id": "communication",
+      "name": "Communication & Bots",
+      "description": "Chat bots and messaging platform integrations",
+      "count": 1,
+      "examples": ["Discord MCP Bot"]
+    }
+  ]
+}

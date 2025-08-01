@@ -1,0 +1,192 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: tas-mcp-go-triggers
+  namespace: argo-events
+spec:
+  template:
+    serviceAccountName: argo-events-sa
+  dependencies:
+  - name: webhook-dep
+    eventSourceName: tas-mcp-webhook-source
+    eventName: github-webhook
+  - name: kafka-dep
+    eventSourceName: tas-mcp-kafka-source  
+    eventName: user-events
+  - name: calendar-dep
+    eventSourceName: tas-mcp-calendar-source
+    eventName: interval-5m
+
+  triggers:
+  - template:
+      name: github-webhook-trigger
+      conditions: webhook-dep
+      http:
+        url: http://tas-mcp-go-triggers:8080/webhook/github
+        payload:
+        - src:
+            dependencyName: webhook-dep
+            dataKey: body
+          dest: data
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  - template:
+      name: user-events-trigger  
+      conditions: kafka-dep
+      http:
+        url: http://tas-mcp-go-triggers:8080/webhook/generic
+        payload:
+        - src:
+            dependencyName: kafka-dep
+            dataKey: body
+          dest: data
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  - template:
+      name: scheduled-trigger
+      conditions: calendar-dep
+      http:
+        url: http://tas-mcp-go-triggers:8080/webhook/tas
+        payload:
+        - src:
+            dependencyName: calendar-dep
+            dataKey: eventTime
+          dest: timestamp
+        - src:
+            value: scheduled.heartbeat
+          dest: eventType
+        - src: 
+            value: calendar
+          dest: source
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  - template:
+      name: kubernetes-deployment-trigger
+      conditions: webhook-dep
+      k8s:
+        operation: create
+        source:
+          resource:
+            apiVersion: batch/v1
+            kind: Job 
+            metadata:
+              generateName: deployment-handler-
+              namespace: default
+            spec:
+              template:
+                spec:
+                  serviceAccountName: tas-mcp-job-runner
+                  containers:
+                  - name: handler
+                    image: tas-mcp/go-trigger-handler:latest
+                    env:
+                    - name: EVENT_TYPE
+                      value: "deployment.triggered"
+                    - name: EVENT_DATA
+                      value: |
+                        {{- with index .Input "webhook-dep" -}}
+                        {{ .Body | toPrettyJson }}
+                        {{- end }}
+                  restartPolicy: Never
+              backoffLimit: 3
+
+  - template:
+      name: grpc-forward-trigger
+      conditions: kafka-dep
+      custom:
+        buildUpon: 
+        - name: kafka-dep
+        trigger:
+          source:
+            inline: |
+              import grpc
+              import json
+              from tas_mcp import mcp_service_pb2, mcp_service_pb2_grpc
+              
+              def forward_to_grpc(event_data):
+                  channel = grpc.insecure_channel('tas-mcp-service:50051')
+                  stub = mcp_service_pb2_grpc.MCPServiceStub(channel)
+                  
+                  request = mcp_service_pb2.IngestEventRequest(
+                      event_id=event_data.get('eventId', ''),
+                      event_type=event_data.get('eventType', ''),
+                      source=event_data.get('source', ''),
+                      data=json.dumps(event_data.get('data', {})),
+                      metadata=event_data.get('metadata', {})
+                  )
+                  
+                  response = stub.IngestEvent(request)
+                  return response.event_id
+              
+              # Execute the forward
+              event_data = json.loads('{{ .Input.kafka-dep.Body }}')
+              result = forward_to_grpc(event_data)
+              print(f"Forwarded event with ID: {result}")
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tas-mcp-go-triggers
+  namespace: argo-events
+spec:
+  selector:
+    app: tas-mcp-go-triggers
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tas-mcp-go-triggers
+  namespace: argo-events
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tas-mcp-go-triggers
+  template:
+    metadata:
+      labels:
+        app: tas-mcp-go-triggers
+    spec:
+      serviceAccountName: tas-mcp-trigger-sa
+      containers:
+      - name: trigger-handler
+        image: tas-mcp/go-triggers:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: LOG_LEVEL
+          value: "info"
+        - name: MCP_SERVICE_ENDPOINT  
+          value: "tas-mcp-service:50051"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi" 
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5

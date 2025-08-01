@@ -1,0 +1,50 @@
+# Docker Compose override for development
+# This file extends docker-compose.yml for local development
+
+version: '3.8'
+
+services:
+  tas-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder  # Stop at builder stage for development
+    volumes:
+      - .:/app
+      - /app/bin  # Prevent overwriting built binary
+    environment:
+      - LOG_LEVEL=debug
+      - FORWARDING_ENABLED=true
+      - FORWARDING_WORKERS=2
+    command: ["go", "run", "./cmd/server"]
+    develop:
+      watch:
+        - action: rebuild
+          path: .
+          ignore:
+            - bin/
+            - tmp/
+            - .git/
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+      - "8082:8082"
+      - "40000:40000"  # Delve debugger port
+
+  # Minimal services for development
+  redis:
+    ports:
+      - "6379:6379"
+
+# Remove heavy services in development
+  kafka:
+    profiles: ["full"]
+    
+  zookeeper:
+    profiles: ["full"]
+    
+  prometheus:
+    profiles: ["monitoring"]
+    
+  grafana:
+    profiles: ["monitoring"]
