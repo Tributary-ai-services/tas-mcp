@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tributary-ai-services.github.io/tas-mcp/registry/schema.json",
+  "title": "MCP Server Registry Schema",
+  "description": "Schema for MCP (Model Context Protocol) server registry entries",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "version": {
+      "type": "string",
+      "description": "Registry format version",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "lastUpdated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last registry update"
+    },
+    "servers": {
+      "type": "array",
+      "description": "Array of MCP server entries",
+      "items": {
+        "$ref": "#/$defs/mcpServer"
+      }
+    }
+  },
+  "required": ["version", "lastUpdated", "servers"],
+  "$defs": {
+    "mcpServer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the MCP server",
+          "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name of the MCP server"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of the server's functionality"
+        },
+        "version": {
+          "type": "string",
+          "description": "Current version of the server"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "ai-model",
+            "data-processing",
+            "workflow-orchestration", 
+            "event-streaming",
+            "knowledge-base",
+            "api-gateway",
+            "monitoring",
+            "security",
+            "database",
+            "file-system",
+            "communication",
+            "development-tools",
+            "other"
+          ],
+          "description": "Primary category of the MCP server"
+        },
+        "provider": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Name of the organization or individual providing the server"
+            },
+            "website": {
+              "type": "string",
+              "format": "uri",
+              "description": "Provider's website URL"
+            },
+            "contact": {
+              "type": "string",
+              "description": "Contact information (email, GitHub, etc.)"
+            }
+          },
+          "required": ["name"]
+        },
+        "repository": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["github", "gitlab", "bitbucket", "other"],
+              "description": "Type of repository hosting"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Repository URL"
+            },
+            "branch": {
+              "type": "string",
+              "default": "main",
+              "description": "Default branch name"
+            }
+          },
+          "required": ["type", "url"]
+        },
+        "endpoints": {
+          "type": "object",
+          "properties": {
+            "http": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uri"
+              },
+              "description": "HTTP endpoint URLs"
+            },
+            "grpc": {
+              "type": "array", 
+              "items": {
+                "type": "string"
+              },
+              "description": "gRPC endpoint addresses"
+            },
+            "websocket": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uri"
+              },
+              "description": "WebSocket endpoint URLs"
+            }
+          }
+        },
+        "access": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["free", "freemium", "paid", "enterprise", "private"],
+              "description": "Access model"
+            },
+            "authentication": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["none", "api-key", "jwt", "oauth2", "mtls", "basic-auth"]
+              },
+              "description": "Supported authentication methods"
+            },
+            "rateLimit": {
+              "type": "object",
+              "properties": {
+                "requests": {
+                  "type": "integer",
+                  "description": "Requests per time window"
+                },
+                "window": {
+                  "type": "string",
+                  "description": "Time window (e.g., '1m', '1h', '1d')"
+                }
+              }
+            },
+            "registrationRequired": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether registration is required"
+            },
+            "registrationUrl": {
+              "type": "string",
+              "format": "uri",
+              "description": "URL for registration if required"
+            }
+          },
+          "required": ["type"]
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of key features supported by the server"
+        },
+        "protocols": {
+          "type": "object",
+          "properties": {
+            "mcp": {
+              "type": "string",
+              "description": "MCP protocol version supported"
+            },
+            "transport": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["http", "grpc", "websocket", "tcp", "udp"]
+              },
+              "description": "Supported transport protocols"
+            }
+          },
+          "required": ["mcp", "transport"]
+        },
+        "deployment": {
+          "type": "object",
+          "properties": {
+            "docker": {
+              "type": "string",
+              "description": "Docker image name and tag"
+            },
+            "kubernetes": {
+              "type": "boolean",
+              "description": "Kubernetes deployment support"
+            },
+            "helm": {
+              "type": "string",
+              "format": "uri",
+              "description": "Helm chart repository URL"
+            },
+            "cloud": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["aws", "gcp", "azure", "digitalocean", "heroku"]
+              },
+              "description": "Supported cloud platforms"
+            }
+          }
+        },
+        "documentation": {
+          "type": "object",
+          "properties": {
+            "readme": {
+              "type": "string",
+              "format": "uri",
+              "description": "README or main documentation URL"
+            },
+            "api": {
+              "type": "string",
+              "format": "uri",
+              "description": "API documentation URL"
+            },
+            "examples": {
+              "type": "string",
+              "format": "uri",
+              "description": "Examples or tutorials URL"
+            }
+          }
+        },
+        "status": {
+          "type": "object",
+          "properties": {
+            "health": {
+              "type": "string",
+              "enum": ["healthy", "degraded", "offline", "unknown"],
+              "description": "Current health status"
+            },
+            "uptime": {
+              "type": "string",
+              "description": "Uptime percentage or SLA"
+            },
+            "lastChecked": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Last health check timestamp"
+            }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional tags for categorization"
+        },
+        "created": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this entry was created"
+        },
+        "updated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this entry was last updated"
+        }
+      },
+      "required": [
+        "id",
+        "name", 
+        "description",
+        "category",
+        "provider",
+        "access",
+        "protocols"
+      ]
+    }
+  }
+}

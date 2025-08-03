@@ -1,0 +1,521 @@
+{
+  "$schema": "./schema.json",
+  "version": "1.0.0",
+  "lastUpdated": "2024-07-31T18:00:00Z",
+  "servers": [
+    {
+      "id": "tas-mcp",
+      "name": "TAS MCP Server",
+      "description": "Tributary AI Services Model Context Protocol server for event ingestion and forwarding",
+      "version": "1.0.0",
+      "category": "event-streaming",
+      "provider": {
+        "name": "Tributary AI Services",
+        "website": "https://github.com/tributary-ai-services",
+        "contact": "https://github.com/tributary-ai-services/tas-mcp"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/tributary-ai-services/tas-mcp",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:8080"],
+        "grpc": ["localhost:50051"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Event ingestion via HTTP and gRPC",
+        "Bidirectional gRPC streaming",
+        "Event forwarding to multiple targets",
+        "Kubernetes-native deployment",
+        "Prometheus metrics",
+        "Health checks"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "grpc"]
+      },
+      "deployment": {
+        "docker": "tas-mcp:latest",
+        "kubernetes": true,
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/tributary-ai-services/tas-mcp/blob/main/README.md",
+        "api": "https://github.com/tributary-ai-services/tas-mcp/blob/main/docs/DESIGN.md"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "99.9%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["golang", "kubernetes", "prometheus", "event-streaming"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "anthropic-mcp-server",
+      "name": "Anthropic MCP Server",
+      "description": "Reference implementation of Model Context Protocol by Anthropic",
+      "version": "0.1.0",
+      "category": "ai-model",
+      "provider": {
+        "name": "Anthropic",
+        "website": "https://anthropic.com",
+        "contact": "https://github.com/anthropics/mcp"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/anthropics/mcp",
+        "branch": "main"
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Reference MCP implementation",
+        "Claude model integration",
+        "Context management",
+        "Tool calling"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "anthropic/mcp-server:latest",
+        "kubernetes": false
+      },
+      "documentation": {
+        "readme": "https://github.com/anthropics/mcp/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["python", "anthropic", "claude", "reference"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "openai-mcp-bridge",
+      "name": "OpenAI MCP Bridge",
+      "description": "Bridge server connecting OpenAI APIs to Model Context Protocol",
+      "version": "0.2.1",
+      "category": "ai-model",
+      "provider": {
+        "name": "OpenAI Community",
+        "contact": "https://github.com/openai-community/mcp-bridge"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/openai-community/mcp-bridge",
+        "branch": "main"
+      },
+      "access": {
+        "type": "freemium",
+        "authentication": ["api-key"],
+        "registrationRequired": true,
+        "registrationUrl": "https://platform.openai.com/signup"
+      },
+      "features": [
+        "OpenAI GPT model integration",
+        "Context window management",
+        "Token usage tracking",
+        "Multiple model support"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "websocket"]
+      },
+      "deployment": {
+        "docker": "openai/mcp-bridge:latest",
+        "kubernetes": true,
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/openai-community/mcp-bridge/blob/main/README.md",
+        "api": "https://docs.openai.com/mcp"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "99.5%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["nodejs", "openai", "gpt", "bridge"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "langchain-mcp-server",
+      "name": "LangChain MCP Server",
+      "description": "LangChain integration server for Model Context Protocol workflows",
+      "version": "0.3.0",
+      "category": "workflow-orchestration",
+      "provider": {
+        "name": "LangChain",
+        "website": "https://langchain.com",
+        "contact": "https://github.com/langchain-ai/mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/langchain-ai/mcp-server",
+        "branch": "main"
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none", "api-key"],
+        "registrationRequired": false
+      },
+      "features": [
+        "LangChain workflow integration",
+        "Chain execution via MCP",
+        "Agent orchestration",
+        "Tool calling support",
+        "Vector store integration"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "grpc"]
+      },
+      "deployment": {
+        "docker": "langchain/mcp-server:latest",
+        "kubernetes": true,
+        "helm": "https://charts.langchain.com/mcp-server",
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/langchain-ai/mcp-server/blob/main/README.md",
+        "api": "https://docs.langchain.com/mcp",
+        "examples": "https://github.com/langchain-ai/mcp-examples"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "99.8%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["python", "langchain", "workflow", "agents"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "huggingface-mcp-hub",
+      "name": "Hugging Face MCP Hub",
+      "description": "Model Context Protocol server for Hugging Face model ecosystem",
+      "version": "1.1.2",
+      "category": "ai-model",
+      "provider": {
+        "name": "Hugging Face",
+        "website": "https://huggingface.co",
+        "contact": "https://github.com/huggingface/mcp-hub"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/huggingface/mcp-hub",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["https://api.huggingface.co/mcp"]
+      },
+      "access": {
+        "type": "freemium",
+        "authentication": ["api-key", "oauth2"],
+        "rateLimit": {
+          "requests": 1000,
+          "window": "1h"
+        },
+        "registrationRequired": true,
+        "registrationUrl": "https://huggingface.co/join"
+      },
+      "features": [
+        "Access to 200,000+ models",
+        "Inference API integration",
+        "Model pipeline orchestration",
+        "Dataset integration",
+        "Space deployment"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "websocket"]
+      },
+      "deployment": {
+        "docker": "huggingface/mcp-hub:latest",
+        "kubernetes": true,
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/huggingface/mcp-hub/blob/main/README.md",
+        "api": "https://huggingface.co/docs/mcp",
+        "examples": "https://huggingface.co/docs/mcp/examples"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "99.9%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["python", "transformers", "ml-models", "inference"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "elasticsearch-mcp-connector",
+      "name": "Elasticsearch MCP Connector",
+      "description": "Model Context Protocol connector for Elasticsearch knowledge bases",
+      "version": "2.0.0",
+      "category": "knowledge-base",
+      "provider": {
+        "name": "Elastic",
+        "website": "https://elastic.co",
+        "contact": "https://github.com/elastic/mcp-connector"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/elastic/mcp-connector",
+        "branch": "main"
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none", "basic-auth", "api-key"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Vector search integration",
+        "Semantic search capabilities",
+        "Index management",
+        "Query DSL support",
+        "Real-time indexing"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "grpc"]
+      },
+      "deployment": {
+        "docker": "elastic/mcp-connector:latest",
+        "kubernetes": true,
+        "helm": "https://helm.elastic.co/mcp-connector",
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/elastic/mcp-connector/blob/main/README.md",
+        "api": "https://www.elastic.co/guide/en/mcp/current/index.html"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "99.95%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["java", "elasticsearch", "search", "vector-db"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "kafka-mcp-bridge",
+      "name": "Apache Kafka MCP Bridge",
+      "description": "Event streaming bridge between Apache Kafka and Model Context Protocol",
+      "version": "1.2.1",
+      "category": "event-streaming",
+      "provider": {
+        "name": "Apache Software Foundation",
+        "website": "https://kafka.apache.org",
+        "contact": "https://github.com/apache/kafka-mcp-bridge"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/apache/kafka-mcp-bridge",
+        "branch": "main"
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none", "mtls"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Kafka topic integration",
+        "Stream processing",
+        "Event transformation",
+        "Schema registry support",
+        "Exactly-once semantics"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "grpc", "tcp"]
+      },
+      "deployment": {
+        "docker": "apache/kafka-mcp-bridge:latest",
+        "kubernetes": true,
+        "helm": "https://charts.bitnami.com/kafka-mcp",
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/apache/kafka-mcp-bridge/blob/main/README.md",
+        "api": "https://kafka.apache.org/documentation/mcp"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "99.9%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["java", "kafka", "streaming", "apache"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "redis-mcp-cache",
+      "name": "Redis MCP Cache Server",
+      "description": "High-performance caching layer for Model Context Protocol using Redis",
+      "version": "0.8.3",
+      "category": "database",
+      "provider": {
+        "name": "Redis Labs",
+        "website": "https://redis.io",
+        "contact": "https://github.com/redis/mcp-cache"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/redis/mcp-cache",
+        "branch": "main"
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none", "basic-auth"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Context caching",
+        "Session persistence",
+        "TTL management",
+        "Clustering support",
+        "Pub/Sub messaging"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "tcp"]
+      },
+      "deployment": {
+        "docker": "redis/mcp-cache:latest",
+        "kubernetes": true,
+        "helm": "https://charts.bitnami.com/redis-mcp",
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/redis/mcp-cache/blob/main/README.md",
+        "api": "https://redis.io/docs/mcp"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "99.99%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["golang", "redis", "cache", "performance"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "prometheus-mcp-metrics",
+      "name": "Prometheus MCP Metrics Server",
+      "description": "Metrics collection and monitoring for Model Context Protocol servers",
+      "version": "1.0.5",
+      "category": "monitoring",
+      "provider": {
+        "name": "Prometheus Community",
+        "website": "https://prometheus.io",
+        "contact": "https://github.com/prometheus-community/mcp-metrics"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/prometheus-community/mcp-metrics",
+        "branch": "main"
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Metrics scraping",
+        "Custom metric definitions",
+        "Alerting integration",
+        "Grafana dashboards",
+        "ServiceMonitor support"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "prom/mcp-metrics:latest",
+        "kubernetes": true,
+        "helm": "https://prometheus-community.github.io/helm-charts",
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/prometheus-community/mcp-metrics/blob/main/README.md",
+        "api": "https://prometheus.io/docs/mcp"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "99.9%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["golang", "prometheus", "monitoring", "metrics"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "discord-mcp-bot",
+      "name": "Discord MCP Bot",
+      "description": "Discord bot integration for Model Context Protocol interactions",
+      "version": "0.4.2",
+      "category": "communication",
+      "provider": {
+        "name": "Discord Community",
+        "contact": "https://github.com/discord-community/mcp-bot"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/discord-community/mcp-bot",
+        "branch": "main"
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["oauth2"],
+        "registrationRequired": true,
+        "registrationUrl": "https://discord.com/developers/applications"
+      },
+      "features": [
+        "Discord slash commands",
+        "Context-aware responses",
+        "Multi-server support",
+        "Role-based permissions",
+        "Voice channel integration"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["websocket", "http"]
+      },
+      "deployment": {
+        "docker": "discord/mcp-bot:latest",
+        "kubernetes": false,
+        "cloud": ["heroku"]
+      },
+      "documentation": {
+        "readme": "https://github.com/discord-community/mcp-bot/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "98.5%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["nodejs", "discord", "bot", "community"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    }
+  ]
+}

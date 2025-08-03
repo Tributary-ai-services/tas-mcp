@@ -1,0 +1,246 @@
+{
+  "HTTPPort": 8080,
+  "GRPCPort": 50051,
+  "HealthCheckPort": 8082,
+  "LogLevel": "info",
+  "ForwardTo": [],
+  "ForwardTimeout": "30s",
+  "MaxEventSize": 1048576,
+  "BufferSize": 1000,
+  "MaxConnections": 100,
+  "Version": "1.0.0",
+  "forwarding": {
+    "enabled": true,
+    "default_retry_attempts": 3,
+    "default_timeout": "30s",
+    "buffer_size": 1000,
+    "workers": 5,
+    "targets": [
+      {
+        "id": "argo-events-webhook",
+        "name": "Argo Events Webhook",
+        "type": "webhook",
+        "endpoint": "http://eventbus-webhook-eventsource-svc.argo-events:12000/webhook",
+        "config": {
+          "timeout": "15s",
+          "retry_attempts": 3,
+          "retry_delay": "2s",
+          "headers": {
+            "Content-Type": "application/json",
+            "X-Event-Source": "tas-mcp"
+          }
+        },
+        "rules": [
+          {
+            "id": "forward-all-events",
+            "name": "Forward All Events",
+            "enabled": true,
+            "priority": 1,
+            "conditions": [
+              {
+                "field": "event_type",
+                "operator": "ne",
+                "value": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "slack-critical-alerts",
+        "name": "Slack Critical Alerts",
+        "type": "http",
+        "endpoint": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK",
+        "config": {
+          "timeout": "10s",
+          "retry_attempts": 2,
+          "retry_delay": "1s",
+          "headers": {
+            "Content-Type": "application/json"
+          }
+        },
+        "rules": [
+          {
+            "id": "critical-alerts-only",
+            "name": "Critical Alerts Only",
+            "enabled": true,
+            "priority": 1,
+            "conditions": [
+              {
+                "field": "event_type",
+                "operator": "eq",
+                "value": "alert.critical"
+              },
+              {
+                "field": "data.severity",
+                "operator": "gte",
+                "value": 8
+              }
+            ],
+            "transform": {
+              "template": "{\n  \"text\": \"🚨 Critical Alert: {{data.title}}\",\n  \"attachments\": [{\n    \"color\": \"danger\",\n    \"fields\": [\n      {\"title\": \"Service\", \"value\": \"{{data.service}}\", \"short\": true},\n      {\"title\": \"Severity\", \"value\": \"{{data.severity}}\", \"short\": true},\n      {\"title\": \"Description\", \"value\": \"{{data.description}}\", \"short\": false}\n    ]\n  }]\n}"
+            }
+          }
+        ]
+      },
+      {
+        "id": "downstream-mcp-server",
+        "name": "Downstream MCP Server",
+        "type": "grpc",
+        "endpoint": "downstream-mcp-service:50051",
+        "config": {
+          "timeout": "20s",
+          "retry_attempts": 2,
+          "retry_delay": "3s"
+        },
+        "rules": [
+          {
+            "id": "forward-user-events",
+            "name": "Forward User Events",
+            "enabled": true,
+            "priority": 1,
+            "conditions": [
+              {
+                "field": "event_type",
+                "operator": "contains",
+                "value": "user."
+              },
+              {
+                "field": "source",
+                "operator": "eq",
+                "value": "auth-service"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "kafka-event-stream",
+        "name": "Kafka Event Stream",
+        "type": "kafka",
+        "endpoint": "kafka-broker.kafka:9092",
+        "config": {
+          "timeout": "10s",
+          "retry_attempts": 3,
+          "retry_delay": "1s",
+          "batch_size": 100,
+          "batch_timeout": "5s"
+        },
+        "rules": [
+          {
+            "id": "stream-all-events",
+            "name": "Stream All Events to Kafka",
+            "enabled": true,
+            "priority": 1,
+            "conditions": [
+              {
+                "field": "event_type",
+                "operator": "ne",
+                "value": "heartbeat"
+              }
+            ],
+            "transform": {
+              "add_fields": {
+                "kafka_timestamp": "{{timestamp}}",
+                "forwarded_by": "tas-mcp-server"
+              },
+              "remove_fields": ["metadata.internal_id"]
+            }
+          }
+        ]
+      },
+      {
+        "id": "pagerduty-integration",
+        "name": "PagerDuty Integration",
+        "type": "http",
+        "endpoint": "https://api.pagerduty.com/incidents",
+        "config": {
+          "timeout": "15s",
+          "retry_attempts": 3,
+          "retry_delay": "2s",
+          "headers": {
+            "Authorization": "Token token=YOUR_PAGERDUTY_TOKEN",
+            "Content-Type": "application/json",
+            "Accept": "application/vnd.pagerduty+json;version=2"
+          }
+        },
+        "rules": [
+          {
+            "id": "escalate-critical-incidents",
+            "name": "Escalate Critical Incidents",
+            "enabled": true,
+            "priority": 1,
+            "conditions": [
+              {
+                "field": "event_type",
+                "operator": "in",
+                "value": ["alert.critical", "incident.created"]
+              },
+              {
+                "field": "data.auto_escalate",
+                "operator": "eq",
+                "value": true
+              }
+            ],
+            "transform": {
+              "template": "{\n  \"incident\": {\n    \"type\": \"incident\",\n    \"title\": \"{{data.title}}\",\n    \"service\": {\n      \"id\": \"{{data.service_id}}\",\n      \"type\": \"service_reference\"\n    },\n    \"urgency\": \"high\",\n    \"body\": {\n      \"type\": \"incident_body\",\n      \"details\": \"{{data.description}}\"\n    }\n  }\n}"
+            },
+            "rate_limit": {
+              "requests_per_second": 1,
+              "burst_size": 5,
+              "window": "60s"
+            }
+          }
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "id": "global-event-filter",
+        "name": "Global Event Filter",
+        "enabled": true,
+        "priority": 1,
+        "conditions": [
+          {
+            "field": "data.sensitive",
+            "operator": "eq",
+            "value": true
+          }
+        ],
+        "actions": [
+          {
+            "type": "drop",
+            "config": {
+              "reason": "sensitive_data_detected"
+            }
+          }
+        ]
+      },
+      {
+        "id": "enrich-events",
+        "name": "Enrich All Events",
+        "enabled": true,
+        "priority": 0,
+        "conditions": [
+          {
+            "field": "event_type",
+            "operator": "ne",
+            "value": ""
+          }
+        ],
+        "actions": [
+          {
+            "type": "transform",
+            "config": {
+              "add_fields": {
+                "processed_by": "tas-mcp-server",
+                "processed_at": "{{current_timestamp}}",
+                "environment": "production"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

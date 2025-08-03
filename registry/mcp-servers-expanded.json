@@ -1,0 +1,1076 @@
+{
+  "$schema": "./schema.json",
+  "version": "2.0.0",
+  "lastUpdated": "2024-07-31T19:00:00Z",
+  "description": "Expanded registry of Model Context Protocol servers from awesome-mcp-servers lists",
+  "servers": [
+    {
+      "id": "tas-mcp",
+      "name": "TAS MCP Server",
+      "description": "Tributary AI Services Model Context Protocol server for event ingestion and forwarding",
+      "version": "1.0.0",
+      "category": "event-streaming",
+      "provider": {
+        "name": "Tributary AI Services",
+        "website": "https://github.com/tributary-ai-services",
+        "contact": "https://github.com/tributary-ai-services/tas-mcp"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/tributary-ai-services/tas-mcp",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:8080"],
+        "grpc": ["localhost:50051"],
+        "live": ["http://localhost:8080"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Event ingestion via HTTP and gRPC",
+        "Bidirectional gRPC streaming",
+        "Event forwarding to multiple targets",
+        "Kubernetes-native deployment",
+        "Prometheus metrics"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "grpc"]
+      },
+      "deployment": {
+        "docker": "tas-mcp:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/tributary-ai-services/tas-mcp/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["golang", "kubernetes", "event-streaming"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "mcp-filesystem",
+      "name": "Filesystem MCP Server",
+      "description": "Secure file operations with configurable access controls",
+      "version": "1.0.0",
+      "category": "file-system",
+      "provider": {
+        "name": "Model Context Protocol",
+        "contact": "https://github.com/modelcontextprotocol/servers"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/modelcontextprotocol/servers",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:3001"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Secure file operations",
+        "Configurable access controls",
+        "Directory traversal protection",
+        "Read/write file operations"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install @modelcontextprotocol/server-filesystem"
+      },
+      "documentation": {
+        "readme": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "filesystem", "security"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "mcp-git",
+      "name": "Git MCP Server",
+      "description": "Tools to read, search, and manipulate Git repositories",
+      "version": "1.0.0",
+      "category": "development-tools",
+      "provider": {
+        "name": "Model Context Protocol",
+        "contact": "https://github.com/modelcontextprotocol/servers"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/modelcontextprotocol/servers",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:3002"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Git repository operations",
+        "Commit history access",
+        "Branch management",
+        "File diff generation",
+        "Repository search"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install @modelcontextprotocol/server-git"
+      },
+      "documentation": {
+        "readme": "https://github.com/modelcontextprotocol/servers/tree/main/src/git"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "git", "version-control"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "mcp-memory",
+      "name": "Memory MCP Server",
+      "description": "Knowledge graph-based persistent memory system",
+      "version": "1.0.0",
+      "category": "ai-model",
+      "provider": {
+        "name": "Model Context Protocol",
+        "contact": "https://github.com/modelcontextprotocol/servers"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/modelcontextprotocol/servers",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:3000"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Knowledge graph storage",
+        "Persistent memory",
+        "Entity relationships",
+        "Context persistence",
+        "Memory retrieval"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install @modelcontextprotocol/server-memory"
+      },
+      "documentation": {
+        "readme": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "knowledge-graph", "memory"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "mcp-postgres",
+      "name": "PostgreSQL MCP Server",
+      "description": "Read-only database interaction with PostgreSQL",
+      "version": "1.0.0",
+      "category": "database",
+      "provider": {
+        "name": "Model Context Protocol",
+        "contact": "https://github.com/modelcontextprotocol/servers"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/modelcontextprotocol/servers",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:3004"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["basic-auth"],
+        "registrationRequired": false
+      },
+      "features": [
+        "PostgreSQL database queries",
+        "Schema inspection",
+        "Read-only operations",
+        "Connection pooling",
+        "Query optimization"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install @modelcontextprotocol/server-postgres"
+      },
+      "documentation": {
+        "readme": "https://github.com/modelcontextprotocol/servers/tree/main/src/postgres"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "postgresql", "database"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "mcp-sqlite",
+      "name": "SQLite MCP Server",
+      "description": "Database operations on SQLite databases",
+      "version": "1.0.0",
+      "category": "database",
+      "provider": {
+        "name": "Model Context Protocol",
+        "contact": "https://github.com/modelcontextprotocol/servers"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/modelcontextprotocol/servers",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:3003"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "SQLite database operations",
+        "Schema management",
+        "Query execution",
+        "Transaction support",
+        "File-based storage"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install @modelcontextprotocol/server-sqlite"
+      },
+      "documentation": {
+        "readme": "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "sqlite", "database"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "github-mcp-server",
+      "name": "GitHub Official MCP Server",
+      "description": "GitHub's official MCP Server for repository operations",
+      "version": "1.0.0",
+      "category": "development-tools",
+      "provider": {
+        "name": "GitHub",
+        "website": "https://github.com",
+        "contact": "https://github.com/github/github-mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/github/github-mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["https://api.github.com/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["oauth2"],
+        "registrationRequired": true
+      },
+      "features": [
+        "Repository management",
+        "Issue tracking",
+        "Pull request operations",
+        "Organization management",
+        "GitHub API integration"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install github-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/github/github-mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "github", "development"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "notion-mcp-server",
+      "name": "Notion Official MCP Server",
+      "description": "Notion official MCP server for workspace integration",
+      "version": "1.0.0",
+      "category": "workflow-orchestration",
+      "provider": {
+        "name": "Notion",
+        "website": "https://notion.so",
+        "contact": "https://github.com/makenotion/notion-mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/makenotion/notion-mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["https://api.notion.com/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["api-key"],
+        "registrationRequired": true
+      },
+      "features": [
+        "Notion workspace integration",
+        "Page and block operations",
+        "Database queries",
+        "Content management",
+        "Team collaboration"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install notion-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/makenotion/notion-mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "notion", "productivity"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "slack-mcp-server",
+      "name": "Slack MCP Server",
+      "description": "Powerful MCP server for Slack Workspaces",
+      "version": "1.0.0",
+      "category": "communication",
+      "provider": {
+        "name": "Community",
+        "contact": "https://github.com/korotovsky/slack-mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/korotovsky/slack-mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["https://slack.com/api/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["oauth2"],
+        "registrationRequired": true
+      },
+      "features": [
+        "Slack workspace integration",
+        "Message operations",
+        "Channel management",
+        "User interactions",
+        "Bot functionality"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install slack-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/korotovsky/slack-mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "slack", "communication"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "docker-mcp-server",
+      "name": "Docker MCP Server",
+      "description": "Run and manage docker containers, docker compose, and logs",
+      "version": "1.0.0",
+      "category": "development-tools",
+      "provider": {
+        "name": "Cloudflare",
+        "website": "https://cloudflare.com",
+        "contact": "https://github.com/cloudflare/mcp-server-docker"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/cloudflare/mcp-server-docker",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:6000"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Docker container management",
+        "Docker Compose operations",
+        "Log streaming",
+        "Image management",
+        "Container monitoring"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install docker-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/cloudflare/mcp-server-docker/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "docker", "containers"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "kubernetes-mkp",
+      "name": "Kubernetes MCP Server (MKP)",
+      "description": "MCP server for Kubernetes that allows interaction with K8s clusters",
+      "version": "1.0.0",
+      "category": "development-tools",
+      "provider": {
+        "name": "Kubernetes MCP",
+        "contact": "https://github.com/kubernetes-mcp/mkp"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/kubernetes-mcp/mkp",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:7000"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Kubernetes cluster interaction",
+        "Pod management",
+        "Service operations",
+        "Deployment management",
+        "Resource monitoring"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "grpc"]
+      },
+      "deployment": {
+        "docker": "kubernetes-mcp/mkp:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/kubernetes-mcp/mkp/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["golang", "kubernetes", "devops"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "playwright-mcp-server",
+      "name": "Playwright MCP Server",
+      "description": "Browser automation using Playwright",
+      "version": "1.0.0",
+      "category": "development-tools",
+      "provider": {
+        "name": "Automata Labs",
+        "contact": "https://github.com/Automata-Labs-team/MCP-Server-Playwright"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/Automata-Labs-team/MCP-Server-Playwright",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:8000"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Browser automation",
+        "Web scraping",
+        "Page interactions",
+        "Screenshot capture",
+        "Form filling"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "pip install playwright-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/Automata-Labs-team/MCP-Server-Playwright/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["python", "playwright", "automation"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "bigquery-mcp-server",
+      "name": "BigQuery MCP Server",
+      "description": "Google BigQuery integration with schema inspection",
+      "version": "1.0.0",
+      "category": "database",
+      "provider": {
+        "name": "Elipsis AI",
+        "contact": "https://github.com/Elipsis-ai/bigquery-mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/Elipsis-ai/bigquery-mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["https://vertex-ai.googleapis.com/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["oauth2"],
+        "registrationRequired": true
+      },
+      "features": [
+        "BigQuery data access",
+        "Schema inspection",
+        "Query execution",
+        "Dataset management",
+        "Cost optimization"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "pip install bigquery-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/Elipsis-ai/bigquery-mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["python", "bigquery", "google-cloud"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "chroma-mcp-server",
+      "name": "Chroma MCP Server",
+      "description": "Embeddings, vector search, document storage, and full-text search",
+      "version": "1.0.0",
+      "category": "knowledge-base",
+      "provider": {
+        "name": "Chroma MCP",
+        "contact": "https://github.com/chroma-mcp/mcp-server-chroma"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/chroma-mcp/mcp-server-chroma",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:9000"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Vector embeddings",
+        "Document storage",
+        "Similarity search",
+        "Full-text search",
+        "Collection management"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "pip install chroma-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/chroma-mcp/mcp-server-chroma/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["python", "vector-db", "embeddings"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "aws-bedrock-mcp-server",
+      "name": "AWS Bedrock MCP Server",
+      "description": "Query Amazon Bedrock Knowledge Bases using natural language",
+      "version": "1.0.0",
+      "category": "ai-model",
+      "provider": {
+        "name": "AWS Samples",
+        "website": "https://aws.amazon.com",
+        "contact": "https://github.com/aws-samples/mcp-server-bedrock-kb"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/aws-samples/mcp-server-bedrock-kb",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["https://bedrock.us-east-1.amazonaws.com/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["api-key"],
+        "registrationRequired": true
+      },
+      "features": [
+        "Bedrock knowledge base queries",
+        "Natural language processing",
+        "AI model integration",
+        "Document retrieval",
+        "Context-aware responses"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "pip install aws-bedrock-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/aws-samples/mcp-server-bedrock-kb/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["python", "aws", "bedrock", "ai"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "stripe-mcp-server",
+      "name": "Stripe MCP Server",
+      "description": "Interact with Stripe API for payment processing",
+      "version": "1.0.0",
+      "category": "api-gateway",
+      "provider": {
+        "name": "Stripe",
+        "website": "https://stripe.com",
+        "contact": "https://github.com/stripe/stripe-mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/stripe/stripe-mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["https://api.stripe.com/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["api-key"],
+        "registrationRequired": true
+      },
+      "features": [
+        "Payment processing",
+        "Customer management",
+        "Subscription handling",
+        "Invoice operations",
+        "Transaction monitoring"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install stripe-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/stripe/stripe-mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "stripe", "payments"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "twilio-mcp-server",
+      "name": "Twilio MCP Server",
+      "description": "Interact with Twilio APIs to send messages, manage phone numbers",
+      "version": "1.0.0",
+      "category": "communication",
+      "provider": {
+        "name": "Twilio",
+        "website": "https://twilio.com",
+        "contact": "https://github.com/twilio/twilio-mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/twilio/twilio-mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["https://api.twilio.com/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["api-key"],
+        "registrationRequired": true
+      },
+      "features": [
+        "SMS messaging",
+        "Voice calls",
+        "Phone number management",
+        "Webhook handling",
+        "Communication logs"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install twilio-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/twilio/twilio-mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "twilio", "sms", "voice"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "browser-mcp-server",
+      "name": "Browser MCP Server",
+      "description": "Automate your local browser for web interaction",
+      "version": "1.0.0",
+      "category": "development-tools",
+      "provider": {
+        "name": "Browser MCP",
+        "contact": "https://github.com/browser-mcp/browser-mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/browser-mcp/browser-mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:5000"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Local browser automation",
+        "Web page interaction",
+        "Form automation",
+        "Screenshot capture",
+        "Navigation control"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install browser-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/browser-mcp/browser-mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "browser", "automation"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "caldav-mcp-server",
+      "name": "CalDAV MCP Server",
+      "description": "Expose calendar operations as tools for AI assistants",
+      "version": "1.0.0",
+      "category": "workflow-orchestration",
+      "provider": {
+        "name": "Model Context Protocol",
+        "contact": "https://github.com/modelcontextprotocol/mcp-server-caldav"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/modelcontextprotocol/mcp-server-caldav",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:8001"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["basic-auth"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Calendar operations",
+        "Event management",
+        "Schedule integration",
+        "Recurring events",
+        "Calendar synchronization"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "pip install caldav-mcp-server"
+      },
+      "documentation": {
+        "readme": "https://github.com/modelcontextprotocol/mcp-server-caldav/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["python", "calendar", "caldav"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "1mcp-agent",
+      "name": "1MCP Agent",
+      "description": "Unified MCP server implementation that aggregates multiple MCP servers",
+      "version": "1.0.0",
+      "category": "api-gateway",
+      "provider": {
+        "name": "1MCP",
+        "contact": "https://github.com/1mcp-app/agent"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/1mcp-app/agent",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:8002"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Multiple server aggregation",
+        "Unified interface",
+        "Load balancing",
+        "Server discovery",
+        "Centralized management"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "npm install 1mcp-agent"
+      },
+      "documentation": {
+        "readme": "https://github.com/1mcp-app/agent/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["typescript", "aggregator", "proxy"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "mcpjungle",
+      "name": "MCPJungle",
+      "description": "Self-hosted MCP Server registry for enterprise AI Agents",
+      "version": "1.0.0",
+      "category": "api-gateway",
+      "provider": {
+        "name": "Duaraghav8",
+        "contact": "https://github.com/duaraghav8/MCPJungle"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/duaraghav8/MCPJungle",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:8003"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Self-hosted registry",
+        "Enterprise deployment",
+        "Server discovery",
+        "Registry management",
+        "Health monitoring"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "mcpjungle:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/duaraghav8/MCPJungle/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["golang", "registry", "enterprise"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    },
+    {
+      "id": "azure-openai-mcp",
+      "name": "Azure OpenAI MCP Server",
+      "description": "Microsoft Azure OpenAI service integration for MCP",
+      "version": "1.0.0",
+      "category": "ai-model",
+      "provider": {
+        "name": "Microsoft",
+        "website": "https://azure.microsoft.com",
+        "contact": "https://github.com/microsoft/azure-openai-mcp"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/microsoft/azure-openai-mcp",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["https://api.cognitive.microsoft.com/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["api-key"],
+        "registrationRequired": true
+      },
+      "features": [
+        "Azure OpenAI integration",
+        "GPT model access",
+        "Cognitive services",
+        "Enterprise security",
+        "Regional deployment"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "microsoft/azure-openai-mcp:latest"
+      },
+      "documentation": {
+        "readme": "https://github.com/microsoft/azure-openai-mcp/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T19:00:00Z"
+      },
+      "tags": ["csharp", "azure", "openai", "microsoft"],
+      "created": "2024-07-31T19:00:00Z",
+      "updated": "2024-07-31T19:00:00Z"
+    }
+  ]
+}

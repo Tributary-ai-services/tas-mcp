@@ -1,0 +1,414 @@
+{
+  "$schema": "./schema.json",
+  "version": "1.0.0",
+  "lastUpdated": "2024-07-31T18:00:00Z",
+  "description": "Curated list of free and publicly accessible MCP servers",
+  "servers": [
+    {
+      "id": "tas-mcp",
+      "name": "TAS MCP Server",
+      "description": "Tributary AI Services Model Context Protocol server for event ingestion and forwarding",
+      "version": "1.0.0",
+      "category": "event-streaming",
+      "provider": {
+        "name": "Tributary AI Services",
+        "website": "https://github.com/tributary-ai-services",
+        "contact": "https://github.com/tributary-ai-services/tas-mcp"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/tributary-ai-services/tas-mcp",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:8080"],
+        "grpc": ["localhost:50051"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Event ingestion via HTTP and gRPC",
+        "Bidirectional gRPC streaming",
+        "Event forwarding to multiple targets",
+        "Kubernetes-native deployment",
+        "Prometheus metrics",
+        "Health checks"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "grpc"]
+      },
+      "deployment": {
+        "docker": "tas-mcp:latest",
+        "kubernetes": true,
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/tributary-ai-services/tas-mcp/blob/main/README.md",
+        "api": "https://github.com/tributary-ai-services/tas-mcp/blob/main/docs/DESIGN.md"
+      },
+      "status": {
+        "health": "healthy",
+        "uptime": "99.9%",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["golang", "kubernetes", "prometheus", "event-streaming"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "mcp-memory-server",
+      "name": "MCP Memory Server",
+      "description": "Simple in-memory context storage server for development and testing",
+      "version": "0.1.0",
+      "category": "database",
+      "provider": {
+        "name": "MCP Community",
+        "contact": "https://github.com/mcp-community/memory-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/mcp-community/memory-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:3000/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "In-memory key-value storage",
+        "Context session management",
+        "TTL support",
+        "Simple REST API",
+        "Development-friendly"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "mcpcommunity/memory-server:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/mcp-community/memory-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["nodejs", "memory", "development", "testing"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "mcp-file-server",
+      "name": "MCP File Server",
+      "description": "File system integration server for MCP with read/write capabilities",
+      "version": "0.2.0",
+      "category": "file-system",
+      "provider": {
+        "name": "MCP Community",
+        "contact": "https://github.com/mcp-community/file-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/mcp-community/file-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:4000/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "File read/write operations",
+        "Directory listing",
+        "File watching",
+        "Content search",
+        "Permission management"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "websocket"]
+      },
+      "deployment": {
+        "docker": "mcpcommunity/file-server:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/mcp-community/file-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["python", "filesystem", "files", "storage"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "sqlite-mcp-server",
+      "name": "SQLite MCP Server",
+      "description": "SQLite database integration for Model Context Protocol queries",
+      "version": "1.0.1",
+      "category": "database",
+      "provider": {
+        "name": "SQLite Community",
+        "contact": "https://github.com/sqlite-community/mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/sqlite-community/mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:3001/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "SQL query execution",
+        "Database schema introspection",
+        "Transaction support",
+        "Prepared statements",
+        "Multiple database support"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "sqlite/mcp-server:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/sqlite-community/mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["golang", "sqlite", "database", "sql"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "web-search-mcp",
+      "name": "Web Search MCP Server",
+      "description": "Web search integration server using multiple search engines",
+      "version": "0.3.2",
+      "category": "api-gateway",
+      "provider": {
+        "name": "Search Community",
+        "contact": "https://github.com/search-community/web-mcp"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/search-community/web-mcp",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:5000/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "rateLimit": {
+          "requests": 100,
+          "window": "1h"
+        },
+        "registrationRequired": false
+      },
+      "features": [
+        "Multi-engine search (DuckDuckGo, Bing)",
+        "Result caching",
+        "Content summarization",
+        "Image search",
+        "News search"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "searchcommunity/web-mcp:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/search-community/web-mcp/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["python", "search", "web", "duckduckgo"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "git-mcp-server",
+      "name": "Git MCP Server",
+      "description": "Git repository integration for code context and version control",
+      "version": "0.4.0",
+      "category": "development-tools",
+      "provider": {
+        "name": "Dev Tools Community",
+        "contact": "https://github.com/dev-tools/git-mcp"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/dev-tools/git-mcp",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:6000/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Repository cloning",
+        "Branch management",
+        "Commit history",
+        "Diff generation",
+        "Code search"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http", "grpc"]
+      },
+      "deployment": {
+        "docker": "devtools/git-mcp:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/dev-tools/git-mcp/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["golang", "git", "version-control", "development"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "weather-mcp-server",
+      "name": "Weather MCP Server",
+      "description": "Weather data integration using free weather APIs",
+      "version": "0.1.5",
+      "category": "api-gateway",
+      "provider": {
+        "name": "Weather Community",
+        "contact": "https://github.com/weather-community/mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/weather-community/mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:7000/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "rateLimit": {
+          "requests": 1000,
+          "window": "1d"
+        },
+        "registrationRequired": false
+      },
+      "features": [
+        "Current weather data",
+        "Weather forecasts",
+        "Historical data",
+        "Multiple location support",
+        "Unit conversion"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "weathercommunity/mcp-server:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/weather-community/mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["nodejs", "weather", "api", "openweather"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "time-mcp-server",
+      "name": "Time & Calendar MCP Server",
+      "description": "Time zone and calendar integration server for scheduling context",
+      "version": "0.2.1",
+      "category": "api-gateway",
+      "provider": {
+        "name": "Time Community",
+        "contact": "https://github.com/time-community/mcp-server"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/time-community/mcp-server",
+        "branch": "main"
+      },
+      "endpoints": {
+        "http": ["http://localhost:8000/mcp"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Time zone conversion",
+        "Calendar calculations",
+        "Business day logic",
+        "Holiday detection",
+        "Scheduling utilities"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "timecommunity/mcp-server:latest",
+        "kubernetes": true
+      },
+      "documentation": {
+        "readme": "https://github.com/time-community/mcp-server/blob/main/README.md"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2024-07-31T18:00:00Z"
+      },
+      "tags": ["python", "time", "calendar", "scheduling"],
+      "created": "2024-07-31T18:00:00Z",
+      "updated": "2024-07-31T18:00:00Z"
+    }
+  ]
+}

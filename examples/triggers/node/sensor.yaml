@@ -1,0 +1,459 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: tas-mcp-node-triggers
+  namespace: argo-events
+spec:
+  template:
+    serviceAccountName: argo-events-sa
+  dependencies:
+  - name: webhook-dep
+    eventSourceName: tas-mcp-webhook-source
+    eventName: tas-webhook
+  - name: calendar-dep
+    eventSourceName: tas-mcp-calendar-source
+    eventName: daily-9am
+  - name: kafka-dep
+    eventSourceName: tas-mcp-kafka-source
+    eventName: user-events
+  - name: redis-dep
+    eventSourceName: tas-mcp-redis-source
+    eventName: alerts
+
+  triggers:
+  # Standard webhook trigger
+  - template:
+      name: node-webhook-trigger
+      conditions: webhook-dep
+      http:
+        url: http://tas-mcp-node-triggers:8080/webhook/generic
+        payload:
+        - src:
+            dependencyName: webhook-dep
+            dataKey: body
+          dest: data
+        - src:
+            dependencyName: webhook-dep
+            dataKey: headers
+          dest: metadata
+        - src:
+            value: webhook.received
+          dest: event_type
+        - src:
+            value: argo-webhook
+          dest: source
+        method: POST
+        headers:
+          Content-Type: application/json
+          X-Event-Source: argo-events
+
+  # Scheduled daily reports trigger
+  - template:
+      name: daily-report-trigger
+      conditions: calendar-dep
+      http:
+        url: http://tas-mcp-node-triggers:8080/webhook/monitoring
+        payload:
+        - src:
+            value: report.daily_scheduled
+          dest: event_type
+        - src:
+            value: scheduler
+          dest: source
+        - src:
+            dependencyName: calendar-dep
+            dataKey: eventTime  
+          dest: timestamp
+        - src:
+            value: |
+              {
+                "report_type": "daily",
+                "metrics": ["cpu", "memory", "disk", "network"],
+                "recipients": ["ops-team@company.com"],
+                "format": "summary"
+              }
+          dest: data
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  # Kafka event processing trigger
+  - template:
+      name: kafka-stream-trigger
+      conditions: kafka-dep
+      http:
+        url: http://tas-mcp-node-triggers:8080/webhook/kafka
+        payload:
+        - src:
+            dependencyName: kafka-dep
+            dataKey: body
+          dest: data
+        - src:
+            value: kafka.message_received
+          dest: event_type
+        - src:
+            value: kafka-user-events
+          dest: source
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  # Redis alert processing trigger
+  - template:
+      name: redis-alert-trigger
+      conditions: redis-dep
+      http:
+        url: http://tas-mcp-node-triggers:8080/webhook/monitoring
+        payload:
+        - src:
+            dependencyName: redis-dep
+            dataKey: body
+          dest: data
+        - src:
+            value: alert.redis_notification
+          dest: event_type
+        - src:
+            value: redis-alerts
+          dest: source
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  # Advanced JavaScript-based trigger for complex processing
+  - template:
+      name: advanced-js-trigger
+      conditions: webhook-dep
+      script:
+        source: |
+          const axios = require('axios');
+          
+          async function processAdvancedEvent(eventData) {
+            try {
+              const data = JSON.parse(eventData);
+              
+              // Complex business logic processing
+              const processedEvent = {
+                event_id: data.event_id || `proc_${Date.now()}`,
+                event_type: 'advanced.processed',
+                source: 'javascript-processor',
+                timestamp: new Date().toISOString(),
+                data: {
+                  original_event: data,
+                  processing_rules: [
+                    'data_validation',
+                    'enrichment',
+                    'transformation'
+                  ],
+                  processed_at: new Date().toISOString(),
+                  processor_version: '1.0.0'
+                },
+                metadata: {
+                  processor: 'argo-events-js',
+                  complexity_score: calculateComplexity(data),
+                  priority: determinePriority(data)
+                }
+              };
+              
+              // Send to Node.js trigger handler
+              const response = await axios.post(
+                'http://tas-mcp-node-triggers:8080/webhook/generic',
+                processedEvent,
+                {
+                  headers: { 'Content-Type': 'application/json' },
+                  timeout: 10000
+                }
+              );
+              
+              console.log(`Advanced processing completed: ${response.status}`);
+              
+            } catch (error) {
+              console.error('Advanced processing failed:', error.message);
+              
+              // Send error event
+              await axios.post(
+                'http://tas-mcp-node-triggers:8080/webhook/generic',
+                {
+                  event_type: 'processing.error',
+                  source: 'javascript-processor', 
+                  data: { error: error.message, original_event: eventData },
+                  timestamp: new Date().toISOString()
+                }
+              );
+            }
+          }
+          
+          function calculateComplexity(data) {
+            // Simple complexity calculation
+            const dataSize = JSON.stringify(data).length;
+            const objectDepth = getObjectDepth(data);
+            return Math.min(10, Math.floor((dataSize / 1000) + objectDepth));
+          }
+          
+          function determinePriority(data) {
+            if (data.event_type && data.event_type.includes('critical')) return 'high';
+            if (data.event_type && data.event_type.includes('error')) return 'medium';
+            return 'normal';
+          }
+          
+          function getObjectDepth(obj, depth = 0) {
+            if (typeof obj !== 'object' || obj === null) return depth;
+            return Math.max(...Object.values(obj).map(v => getObjectDepth(v, depth + 1)));
+          }
+          
+          // Execute the processing
+          const eventData = `{{ .Input.webhook-dep.Body }}`;
+          processAdvancedEvent(eventData);
+
+  # Conditional trigger with multiple conditions
+  - template:
+      name: conditional-multi-trigger
+      conditions: webhook-dep && kafka-dep
+      http:
+        url: http://tas-mcp-node-triggers:8080/webhook/generic
+        payload:
+        - src:
+            value: multi.condition_met
+          dest: event_type
+        - src:
+            value: multi-condition-processor
+          dest: source
+        - src:
+            value: |
+              {
+                "webhook_data": {{ .Input.webhook-dep.Body | toPrettyJson }},
+                "kafka_data": {{ .Input.kafka-dep.Body | toPrettyJson }},
+                "correlation_id": "{{ .Input.webhook-dep.Body.correlation_id | default "unknown" }}",
+                "processing_timestamp": "{{ .Timestamp }}"
+              }
+          dest: data
+        method: POST
+        headers:
+          Content-Type: application/json
+
+  # Custom Kubernetes job trigger for heavy processing
+  - template:
+      name: heavy-processing-job
+      conditions: kafka-dep
+      k8s:
+        operation: create
+        source:
+          resource:
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              generateName: node-processor-
+              namespace: default
+            spec:
+              template:
+                spec:
+                  serviceAccountName: tas-mcp-processor
+                  containers:
+                  - name: processor
+                    image: tas-mcp/node-processor:latest
+                    env:
+                    - name: EVENT_DATA
+                      value: |
+                        {{ .Input.kafka-dep.Body | toPrettyJson }}
+                    - name: PROCESSING_TYPE
+                      value: "heavy"
+                    - name: CALLBACK_URL
+                      value: "http://tas-mcp-node-triggers:8080/webhook/generic"
+                    - name: NODE_ENV
+                      value: "production"
+                    resources:
+                      requests:
+                        memory: "512Mi"
+                        cpu: "500m"
+                      limits:
+                        memory: "2Gi"
+                        cpu: "1"
+                  restartPolicy: Never
+              backoffLimit: 2
+              activeDeadlineSeconds: 1800 # 30 minutes
+
+  # Multi-step workflow trigger
+  - template:
+      name: workflow-trigger
+      conditions: webhook-dep
+      argoWorkflow:
+        source:
+          resource:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Workflow
+            metadata:
+              generateName: tas-mcp-workflow-
+            spec:
+              entrypoint: process-event
+              arguments:
+                parameters:
+                - name: event-data
+                  value: |
+                    {{ .Input.webhook-dep.Body | toPrettyJson }}
+                - name: callback-url
+                  value: "http://tas-mcp-node-triggers:8080/webhook/generic"
+              templates:
+              - name: process-event
+                steps:
+                - - name: validate
+                    template: validate-step
+                - - name: transform
+                    template: transform-step
+                - - name: notify
+                    template: notify-step
+              
+              - name: validate-step
+                container:
+                  image: tas-mcp/validator:latest
+                  command: [node]
+                  args: ["/app/validate.js", "{{workflow.parameters.event-data}}"]
+              
+              - name: transform-step
+                container:
+                  image: tas-mcp/transformer:latest
+                  command: [node]
+                  args: ["/app/transform.js", "{{workflow.parameters.event-data}}"]
+              
+              - name: notify-step
+                http:
+                  url: "{{workflow.parameters.callback-url}}"
+                  method: POST
+                  body: |
+                    {
+                      "event_type": "workflow.completed",
+                      "source": "argo-workflow",
+                      "data": {
+                        "workflow_name": "{{workflow.name}}",
+                        "status": "{{workflow.status}}",
+                        "duration": "{{workflow.duration}}"
+                      }
+                    }
+                  headers:
+                    Content-Type: application/json
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tas-mcp-node-triggers
+  namespace: argo-events
+spec:
+  selector:
+    app: tas-mcp-node-triggers
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tas-mcp-node-triggers
+  namespace: argo-events
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tas-mcp-node-triggers
+  template:
+    metadata:
+      labels:
+        app: tas-mcp-node-triggers
+    spec:
+      serviceAccountName: tas-mcp-trigger-sa
+      containers:
+      - name: trigger-handler
+        image: tas-mcp/node-triggers:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: REDIS_HOST
+          value: "redis-service.redis"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: KAFKA_BROKERS
+          value: "kafka-broker.kafka:9092"
+        - name: MCP_GRPC_ENDPOINT
+          value: "tas-mcp-service:50051"
+        - name: SENDGRID_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sendgrid-secret
+              key: api-key
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-secret
+              key: token
+        - name: SLACK_WEBHOOK_PATH
+          valueFrom:
+            secretKeyRef:
+              name: slack-secret
+              key: webhook-path
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/config
+          readOnly: true
+      volumes:
+      - name: config-volume
+        configMap:
+          name: node-trigger-config
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: node-trigger-config
+  namespace: argo-events
+data:
+  config.json: |
+    {
+      "triggers": {
+        "rate_limiting": {
+          "default_limit": 100,
+          "window_ms": 60000
+        },
+        "retries": {
+          "default_retries": 3,
+          "backoff_factor": 2
+        },
+        "timeouts": {
+          "http_timeout": 30000,
+          "grpc_timeout": 10000
+        }
+      },
+      "integrations": {
+        "slack": {
+          "default_channel": "#alerts",
+          "username": "TAS MCP Bot"
+        },
+        "email": {
+          "from": "noreply@tas-mcp.com",
+          "template_path": "/etc/templates"
+        }
+      }
+    }

@@ -1,0 +1,40 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tas-mcp-ingress
+  namespace: tas-mcp-staging
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - tas-mcp-staging.example.com
+    - tas-mcp-grpc-staging.example.com
+    secretName: tas-mcp-staging-tls
+  rules:
+  - host: tas-mcp-staging.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: staging-tas-mcp-http
+            port:
+              number: 8080
+  - host: tas-mcp-grpc-staging.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: staging-tas-mcp-grpc
+            port:
+              number: 50051
