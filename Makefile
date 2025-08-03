@@ -66,15 +66,15 @@ lint:
 # Format code
 fmt:
 	@echo "Formatting code..."
-	goimports -w .
-	go fmt ./...
+	goimports -w $$(find . -name '*.go' -not -path './gen/*' -not -path './proto/gen/*')
+	go fmt $$(go list ./... | grep -v '/gen/')
 	buf format -w
 
 # Check formatting without making changes
 fmt-check:
 	@echo "Checking code formatting..."
-	@gofmt -l . | grep -E "\.go$$" && { echo "ERROR: Code is not formatted. Run 'make fmt'"; exit 1; } || echo "✓ gofmt formatting OK"
-	@goimports -l . | grep -E "\.go$$" && { echo "ERROR: Imports are not formatted. Run 'make fmt'"; exit 1; } || echo "✓ goimports formatting OK"
+	@find . -name '*.go' -not -path './gen/*' -not -path './proto/gen/*' | xargs gofmt -l | grep -E "\.go$$" && { echo "ERROR: Code is not formatted. Run 'make fmt'"; exit 1; } || echo "✓ gofmt formatting OK"
+	@find . -name '*.go' -not -path './gen/*' -not -path './proto/gen/*' | xargs goimports -l | grep -E "\.go$$" && { echo "ERROR: Imports are not formatted. Run 'make fmt'"; exit 1; } || echo "✓ goimports formatting OK"
 	@echo "All formatting checks passed!"
 
 # Download dependencies
@@ -134,14 +134,14 @@ ci: clean deps proto
 	@echo "1. Verifying dependencies..."
 	go mod verify
 	@echo "2. Formatting check..."
-	gofmt -l . | grep -E "\.go$$" && { echo "ERROR: Code is not formatted. Run 'make fmt'"; exit 1; } || echo "✓ gofmt formatting OK"
-	goimports -l . | grep -E "\.go$$" && { echo "ERROR: Imports are not formatted. Run 'make fmt'"; exit 1; } || echo "✓ goimports formatting OK"
+	@find . -name '*.go' -not -path './gen/*' -not -path './proto/gen/*' | xargs gofmt -l | grep -E "\.go$$" && { echo "ERROR: Code is not formatted. Run 'make fmt'"; exit 1; } || echo "✓ gofmt formatting OK"
+	@find . -name '*.go' -not -path './gen/*' -not -path './proto/gen/*' | xargs goimports -l | grep -E "\.go$$" && { echo "ERROR: Imports are not formatted. Run 'make fmt'"; exit 1; } || echo "✓ goimports formatting OK"
 	@echo "3. Building application..."
 	$(MAKE) build
 	@echo "4. Running linter on main code..."
-	golangci-lint run --build-tags "" --tests=false cmd/server/ internal/config/ internal/forwarding/ internal/logger/ internal/testutil/ || echo "⚠️  Linter warnings found but continuing..."
+	golangci-lint run --build-tags "" --tests=false cmd/server/ internal/config/ internal/forwarding/ internal/logger/ internal/testutil/ internal/federation/ || echo "⚠️  Linter warnings found but continuing..."
 	@echo "5. Running unit tests..."
-	go test -v -race -coverprofile=coverage.out ./internal/config/ ./internal/forwarding/ ./internal/logger/ ./internal/testutil/ || echo "⚠️  Some tests failed but continuing..."
+	go test -v -race -coverprofile=coverage.out ./internal/config/ ./internal/forwarding/ ./internal/logger/ ./internal/testutil/ ./internal/federation/ || echo "⚠️  Some tests failed but continuing..."
 	@echo "6. Building Docker image..."
 	$(MAKE) docker
 	@echo "=== CI Pipeline Completed Successfully ==="
@@ -152,14 +152,14 @@ ci-full: clean deps proto
 	@echo "1. Verifying dependencies..."
 	go mod verify
 	@echo "2. Formatting check..."
-	gofmt -l . | grep -E "\.go$$" && { echo "ERROR: Code is not formatted. Run 'make fmt'"; exit 1; } || echo "✓ gofmt formatting OK"
-	goimports -l . | grep -E "\.go$$" && { echo "ERROR: Imports are not formatted. Run 'make fmt'"; exit 1; } || echo "✓ goimports formatting OK"
+	@find . -name '*.go' -not -path './gen/*' -not -path './proto/gen/*' | xargs gofmt -l | grep -E "\.go$$" && { echo "ERROR: Code is not formatted. Run 'make fmt'"; exit 1; } || echo "✓ gofmt formatting OK"
+	@find . -name '*.go' -not -path './gen/*' -not -path './proto/gen/*' | xargs goimports -l | grep -E "\.go$$" && { echo "ERROR: Imports are not formatted. Run 'make fmt'"; exit 1; } || echo "✓ goimports formatting OK"
 	@echo "3. Building application..."
 	$(MAKE) build
 	@echo "4. Running linter on main code..."
-	golangci-lint run --build-tags "" --tests=false cmd/server/ internal/config/ internal/forwarding/ internal/logger/ internal/testutil/ || echo "⚠️  Linter warnings found but continuing..."
+	golangci-lint run --build-tags "" --tests=false cmd/server/ internal/config/ internal/forwarding/ internal/logger/ internal/testutil/ internal/federation/ || echo "⚠️  Linter warnings found but continuing..."
 	@echo "5. Running unit tests..."
-	go test -v -race -coverprofile=coverage.out ./internal/config/ ./internal/forwarding/ ./internal/logger/ ./internal/testutil/ || echo "⚠️  Some tests failed but continuing..."
+	go test -v -race -coverprofile=coverage.out ./internal/config/ ./internal/forwarding/ ./internal/logger/ ./internal/testutil/ ./internal/federation/ || echo "⚠️  Some tests failed but continuing..."
 	@echo "6. Running integration tests..."
 	$(MAKE) test-integration || echo "⚠️  Integration tests failed but continuing..."
 	@echo "7. Running benchmark tests..."
@@ -176,8 +176,14 @@ ci-full: clean deps proto
 	@echo "=== Full CI/CD Pipeline Completed Successfully ==="
 
 # Initialize project (run once)
-init: dev-deps deps proto
+init: dev-deps deps proto setup-hooks
 	@echo "Project initialized successfully!"
+
+# Setup Git hooks for automatic formatting
+setup-hooks:
+	@echo "Setting up Git hooks..."
+	@chmod +x scripts/setup-git-hooks.sh
+	@./scripts/setup-git-hooks.sh
 
 # Kubernetes deployment targets
 k8s-dev:
@@ -262,7 +268,7 @@ help:
 	@echo "TAS MCP Server Build Commands:"
 	@echo ""
 	@echo "Build & Development:"
-	@echo "  make init              - Initialize project (install deps, generate code)"
+	@echo "  make init              - Initialize project (install deps, generate code, setup hooks)"
 	@echo "  make build             - Build the binary" 
 	@echo "  make test              - Run all tests (unit tests)"
 	@echo "  make test-unit         - Run unit tests only"
@@ -308,5 +314,8 @@ help:
 	@echo "  make registry-free     - List free servers"
 	@echo "  make registry-endpoints - List all endpoints"
 	@echo "  make registry-search TERM=<search> - Search servers"
+	@echo ""
+	@echo "Git Hooks:"
+	@echo "  make setup-hooks       - Setup Git pre-commit hooks for auto-formatting"
 	@echo ""
 	@echo "  make help      - Show this help"

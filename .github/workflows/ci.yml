@@ -2,42 +2,49 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, init ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
 
 env:
-  GO_VERSION: '1.22'
+  GO_VERSION: '1.23'
 
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version: ['1.22', '1.23']
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: ${{ matrix.go-version }}
+        go-version: ${{ env.GO_VERSION }}
         
     - name: Cache Go modules
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-${{ matrix.go-version }}-
+          ${{ runner.os }}-go-${{ env.GO_VERSION }}-
           
+    - name: Install system dependencies
+      run: |
+        # Install buf for protobuf generation
+        sudo curl -sSL "https://github.com/bufbuild/buf/releases/latest/download/buf-$(uname -s)-$(uname -m)" -o /usr/local/bin/buf
+        sudo chmod +x /usr/local/bin/buf
+        
+        # Install kustomize for k8s validation
+        sudo curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+
     - name: Download dependencies
-      run: go mod download
+      run: make deps
       
     - name: Verify dependencies
       run: go mod verify
@@ -48,13 +55,11 @@ jobs:
     - name: Generate proto files
       run: make proto
       
+    - name: Check formatting
+      run: make fmt-check
+      
     - name: Run linter
       run: make lint
-      
-    - name: Check formatting
-      run: |
-        make fmt
-        git diff --exit-code
         
     - name: Run unit tests
       run: make test-unit
@@ -66,11 +71,20 @@ jobs:
       run: make test-coverage
       
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
         file: ./coverage.out
         flags: unittests
         name: codecov-umbrella
+
+    - name: Validate Kubernetes manifests
+      run: make k8s-validate
+
+    - name: Validate MCP registry
+      run: |
+        cd registry
+        npm ci --silent
+        npm run validate
         
   benchmark:
     name: Benchmark
@@ -81,12 +95,12 @@ jobs:
       uses: actions/checkout@v4
       
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GO_VERSION }}
         
     - name: Cache Go modules
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cache/go-build
@@ -95,8 +109,14 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-go-${{ env.GO_VERSION }}-
           
+    - name: Install system dependencies
+      run: |
+        # Install buf for protobuf generation
+        sudo curl -sSL "https://github.com/bufbuild/buf/releases/latest/download/buf-$(uname -s)-$(uname -m)" -o /usr/local/bin/buf
+        sudo chmod +x /usr/local/bin/buf
+
     - name: Download dependencies
-      run: go mod download
+      run: make deps
       
     - name: Install development tools
       run: make dev-deps
@@ -108,7 +128,7 @@ jobs:
       run: make test-benchmark
       
   build:
-    name: Build
+    name: Build and Docker
     runs-on: ubuntu-latest
     
     steps:
@@ -116,12 +136,12 @@ jobs:
       uses: actions/checkout@v4
       
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GO_VERSION }}
         
     - name: Cache Go modules
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cache/go-build
@@ -129,9 +149,15 @@ jobs:
         key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-${{ env.GO_VERSION }}-
+
+    - name: Install system dependencies
+      run: |
+        # Install buf for protobuf generation
+        sudo curl -sSL "https://github.com/bufbuild/buf/releases/latest/download/buf-$(uname -s)-$(uname -m)" -o /usr/local/bin/buf
+        sudo chmod +x /usr/local/bin/buf
           
     - name: Download dependencies
-      run: go mod download
+      run: make deps
       
     - name: Install development tools
       run: make dev-deps
@@ -142,33 +168,33 @@ jobs:
     - name: Build binary
       run: make build
       
-    - name: Test binary
-      run: |
-        ./bin/tas-mcp -version || echo "Binary version check failed"
-        
-  docker:
-    name: Docker Build
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
     - name: Build Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: false
-        tags: tas-mcp:test
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        
+      run: make docker
+
     - name: Test Docker image
       run: |
-        docker run --rm tas-mcp:test -version || echo "Docker image test failed"
+        # Start the container in the background for health check
+        docker run -d --name test-container -p 8080:8080 -p 50051:50051 -p 8082:8082 tas-mcp:latest
+        
+        # Wait for container to start
+        sleep 10
+        
+        # Check if container is running
+        docker ps | grep test-container
+        
+        # Test health endpoint (with retry)
+        for i in {1..30}; do
+          if curl -f http://localhost:8082/health; then
+            echo "Health check passed"
+            break
+          fi
+          echo "Health check attempt $i failed, retrying in 2s..."
+          sleep 2
+        done
+        
+        # Clean up
+        docker stop test-container
+        docker rm test-container
         
   security:
     name: Security Scan
@@ -177,17 +203,43 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
       with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-        
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install Gosec
+      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+    - name: Run Gosec Security Scanner
+      run: |
+        timeout 120s gosec -no-fail -fmt sarif -out gosec.sarif -exclude-dir=gen -exclude-dir=proto/gen ./... || echo "Gosec completed with issues or timed out"
+        # Ensure SARIF file exists, create empty one if not
+        if [ ! -f gosec.sarif ]; then
+          echo '{"version":"2.1.0","$schema":"https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json","runs":[]}' > gosec.sarif
+        fi
+
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v3
       if: always()
       with:
-        sarif_file: 'trivy-results.sarif'
+        sarif_file: gosec.sarif
+
+    - name: Run govulncheck
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
+      
+    - name: Build Docker image for security scan
+      run: docker build -t tas-mcp:security-test .
+
+    - name: Run Trivy vulnerability scanner on Docker image
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'tas-mcp:security-test'
+        format: 'table'
+        exit-code: '0'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'

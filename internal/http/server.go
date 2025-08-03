@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	mcpv1 "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1"
+	"github.com/tributary-ai-services/tas-mcp/internal/federation"
 	"github.com/tributary-ai-services/tas-mcp/internal/forwarding"
 	grpcserver "github.com/tributary-ai-services/tas-mcp/internal/grpc"
 )
@@ -24,11 +25,12 @@ const (
 
 // Server holds the HTTP server configuration
 type Server struct {
-	log       *zap.Logger
-	mcpServer *grpcserver.MCPServer
-	forwarder *forwarding.EventForwarder
-	version   string
-	startTime time.Time
+	log               *zap.Logger
+	mcpServer         *grpcserver.MCPServer
+	forwarder         *forwarding.EventForwarder
+	federationManager federation.TASManager
+	version           string
+	startTime         time.Time
 }
 
 // NewServer creates a new HTTP server instance
@@ -39,6 +41,23 @@ func NewServer(log *zap.Logger, mcpServer *grpcserver.MCPServer, forwarder *forw
 		forwarder: forwarder,
 		version:   DefaultVersion,
 		startTime: time.Now(),
+	}
+}
+
+// NewServerWithFederation creates a new HTTP server instance with federation support
+func NewServerWithFederation(
+	log *zap.Logger,
+	mcpServer *grpcserver.MCPServer,
+	forwarder *forwarding.EventForwarder,
+	federationManager federation.TASManager,
+) *Server {
+	return &Server{
+		log:               log,
+		mcpServer:         mcpServer,
+		forwarder:         forwarder,
+		federationManager: federationManager,
+		version:           DefaultVersion,
+		startTime:         time.Now(),
 	}
 }
 
@@ -85,6 +104,12 @@ func (s *Server) Handler() http.Handler {
 	// Server management endpoints
 	api.HandleFunc("/metrics", s.handleMetrics).Methods("GET")
 	api.HandleFunc("/stats", s.handleStats).Methods("GET")
+
+	// Federation endpoints (if federation manager is available)
+	if s.federationManager != nil {
+		federationHandlers := federation.NewHTTPHandlers(s.federationManager, s.log)
+		federationHandlers.RegisterRoutes(r)
+	}
 
 	// Health check endpoints
 	r.HandleFunc("/health", s.handleHealth).Methods("GET")
