@@ -1,9 +1,17 @@
 # 📡 TAS Model Context Protocol (MCP) Server
 
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://golang.org)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Build](https://github.com/tributary-ai-services/tas-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/tributary-ai-services/tas-mcp/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/tributary-ai-services/tas-mcp)](https://goreportcard.com/report/github.com/tributary-ai-services/tas-mcp)
+[![Test Coverage](https://img.shields.io/badge/coverage-64.6%25-green?style=flat&logo=go)](https://github.com/tributary-ai-services/tas-mcp#-testing--quality-metrics)
+[![Go Reference](https://pkg.go.dev/badge/github.com/tributary-ai-services/tas-mcp.svg)](https://pkg.go.dev/github.com/tributary-ai-services/tas-mcp)
+[![License](https://img.shields.io/github/license/tributary-ai-services/tas-mcp.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/tributary-ai-services/tas-mcp.svg)](https://github.com/tributary-ai-services/tas-mcp/releases)
+[![Join Slack](https://img.shields.io/badge/chat-on%20Slack-blue?logo=slack)](https://join.slack.com/t/tributaryaiservcies/shared_invite/zt-3alfz1o77-kwk3mL~1oBdMAEEY9VEVSw)
+
+[![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)](https://www.docker.com)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5?style=flat&logo=kubernetes)](https://kubernetes.io)
+[![MCP Federation](https://img.shields.io/badge/MCP-Federation%20Ready-FF6B6B?style=flat&logo=network-wired)](https://github.com/tributary-ai-services/tas-mcp)
 
 The **TAS MCP Server** is a high-performance, cloud-native event gateway and ingestion service that implements the [Model Context Protocol](https://github.com/anthropics/model-context-protocol) to support RAG pipelines, event-driven architectures, and workflow orchestration across distributed AI systems.
 

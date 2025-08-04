@@ -189,6 +189,38 @@ ls -la gen/mcp/v1/
 
 ## 📝 Code Style and Standards
 
+### Automatic Code Formatting
+
+The project uses **Git pre-commit hooks** to automatically format code:
+
+```bash
+# Setup hooks during project initialization
+make init
+
+# Or setup hooks manually
+make setup-hooks
+```
+
+**The pre-commit hook will:**
+- ✅ Automatically run `goimports` and `gofmt` on staged Go files
+- ✅ Add formatted files back to your commit
+- ✅ Verify formatting before allowing commit
+- ✅ Skip generated files (`/gen/`, `/proto/gen/`)
+
+**Manual formatting:**
+```bash
+# Format all code
+make fmt
+
+# Check formatting without changes
+make fmt-check
+```
+
+**Bypass hook (not recommended):**
+```bash
+git commit --no-verify
+```
+
 ### Go Code Standards
 
 1. **Follow [Effective Go](https://golang.org/doc/effective_go)**

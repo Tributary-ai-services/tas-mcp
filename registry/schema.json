@@ -1,5 +1,4 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tributary-ai-services.github.io/tas-mcp/registry/schema.json",
   "title": "MCP Server Registry Schema",
   "description": "Schema for MCP (Model Context Protocol) server registry entries",
@@ -23,12 +22,12 @@
       "type": "array",
       "description": "Array of MCP server entries",
       "items": {
-        "$ref": "#/$defs/mcpServer"
+        "$ref": "#/definitions/mcpServer"
       }
     }
   },
   "required": ["version", "lastUpdated", "servers"],
-  "$defs": {
+  "definitions": {
     "mcpServer": {
       "type": "object",
       "properties": {

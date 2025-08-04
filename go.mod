@@ -5,6 +5,7 @@ go 1.23.0
 require (
 	github.com/gorilla/mux v1.8.1
 	go.uber.org/zap v1.26.0
+	golang.org/x/oauth2 v0.30.0
 	google.golang.org/grpc v1.69.0
 	google.golang.org/protobuf v1.36.0
 )
