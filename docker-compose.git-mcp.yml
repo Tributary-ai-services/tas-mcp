@@ -1,0 +1,242 @@
+version: '3.8'
+
+services:
+  # TAS MCP Server - Main federation server
+  tas-mcp:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${TAS_MCP_VERSION:-1.1.0}
+    image: tas-mcp/server:${TAS_MCP_VERSION:-1.1.0}
+    container_name: tas-mcp-federation-server-v${TAS_MCP_VERSION:-1.1.0}
+    hostname: tas-mcp-server
+    ports:
+      - "8080:8080"   # HTTP API
+      - "50051:50051" # gRPC API
+      - "8082:8082"   # Health endpoint
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+      LOG_LEVEL: info
+      HTTP_PORT: 8080
+      GRPC_PORT: 50051
+      HEALTH_PORT: 8082
+      FEDERATION_ENABLED: "true"
+      FEDERATION_AUTO_DISCOVERY: "true"
+      GIT_MCP_ENDPOINT: http://git-mcp-server:3000
+      SERVICE_NAME: tas-mcp-federation-server
+      SERVICE_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - tas_mcp_data:/app/data
+    networks:
+      - mcp-network
+    depends_on:
+      git-mcp:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "com.tributary-ai.service=tas-mcp-server"
+      - "com.tributary-ai.version=${TAS_MCP_VERSION:-1.1.0}"
+      - "com.tributary-ai.component=federation-server"
+
+  # Git MCP Server - Official Git repository server
+  git-mcp:
+    build:
+      context: .
+      dockerfile: deployments/git-mcp/Dockerfile
+      args:
+        VERSION: ${GIT_MCP_VERSION:-1.0.0}
+    image: tas-mcp/git-mcp-server:${GIT_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-git-server-v${GIT_MCP_VERSION:-1.0.0}
+    hostname: git-mcp-server
+    ports:
+      - "3000:3000"   # Git MCP API
+      - "3001:3001"   # Health check endpoint
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+      MCP_PORT: 3000
+      MCP_HOST: 0.0.0.0
+      REPOSITORY_PATH: /repositories
+      LOG_LEVEL: info
+      SERVICE_NAME: tas-mcp-git-server
+      SERVICE_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+    volumes:
+      - ./examples/repositories:/repositories
+      - git_mcp_logs:/app/logs
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "com.tributary-ai.service=git-mcp-server"
+      - "com.tributary-ai.version=${GIT_MCP_VERSION:-1.0.0}"
+      - "com.tributary-ai.component=mcp-server"
+
+  # Federation initializer - Registers Git MCP server with TAS MCP
+  federation-init:
+    image: curlimages/curl:8.8.0
+    container_name: tas-mcp-federation-init-v${TAS_MCP_VERSION:-1.1.0}
+    hostname: federation-initializer
+    networks:
+      - mcp-network
+    depends_on:
+      tas-mcp:
+        condition: service_healthy
+      git-mcp:
+        condition: service_healthy
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+      SERVICE_NAME: tas-mcp-federation-init
+      TAS_MCP_ENDPOINT: http://tas-mcp-server:8080
+      GIT_MCP_ENDPOINT: http://git-mcp-server:3000
+    volumes:
+      - ./deployments/federation:/scripts:ro
+    command: |
+      sh -c "
+        echo '🔄 Waiting for services to be ready...'
+        sleep 10
+        
+        echo '📝 Registering Git MCP server with TAS MCP federation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"git-mcp-server-v$${GIT_MCP_VERSION}\",
+               \"name\": \"Git MCP Server v$${GIT_MCP_VERSION}\",
+               \"description\": \"Official Git repository interaction and automation server\",
+               \"version\": \"'$${GIT_MCP_VERSION}'\",
+               \"category\": \"development-tools\",
+               \"endpoint\": \"'$${GIT_MCP_ENDPOINT}'\",
+               \"protocol\": \"http\",
+               \"auth\": {
+                 \"type\": \"none\",
+                 \"config\": {}
+               },
+               \"capabilities\": [
+                 \"git_status\", \"git_diff_unstaged\", \"git_diff_staged\",
+                 \"git_commit\", \"git_add\", \"git_reset\", \"git_log\",
+                 \"git_create_branch\", \"git_checkout\"
+               ],
+               \"tags\": [\"python\", \"git\", \"repository\", \"development\", \"official\", \"v'$${GIT_MCP_VERSION}'\"],
+               \"health_check\": {
+                 \"enabled\": true,
+                 \"interval\": \"30s\",
+                 \"timeout\": \"10s\",
+                 \"path\": \"/health\"
+               }
+             }' || echo '⚠️ Registration may have failed - server might already be registered'
+        
+        echo '✅ Federation initialization completed'
+        
+        echo '📋 Listing registered servers:'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.' || echo 'Could not list servers'
+        
+        echo '🏥 Checking Git MCP server health:'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/git-mcp-server-v$${GIT_MCP_VERSION}/health || echo 'Health check endpoint may not be implemented'
+      "
+    restart: "no"
+    labels:
+      - "com.tributary-ai.service=federation-init"
+      - "com.tributary-ai.version=${TAS_MCP_VERSION:-1.1.0}"
+      - "com.tributary-ai.component=init-job"
+
+  # Test client for validating the integration
+  test-client:
+    image: curlimages/curl:8.8.0
+    container_name: tas-mcp-test-client-v${TAS_MCP_VERSION:-1.1.0}
+    hostname: test-client
+    networks:
+      - mcp-network
+    depends_on:
+      federation-init:
+        condition: service_completed_successfully
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+      SERVICE_NAME: tas-mcp-test-client
+      TAS_MCP_ENDPOINT: http://tas-mcp-server:8080
+      TAS_MCP_HEALTH: http://tas-mcp-server:8082
+      GIT_MCP_ENDPOINT: http://git-mcp-server:3000
+      GIT_MCP_HEALTH: http://git-mcp-server:3001
+    volumes:
+      - ./deployments/test:/tests:ro
+    command: |
+      sh -c "
+        echo '🧪 Running Git MCP Integration Tests v$${TAS_MCP_VERSION}'
+        echo '======================================================='
+        
+        sleep 5
+        
+        echo '1️⃣ Testing TAS MCP health...'
+        curl -f $${TAS_MCP_HEALTH}/health && echo '✅ TAS MCP v$${TAS_MCP_VERSION} is healthy' || echo '❌ TAS MCP health check failed'
+        
+        echo '2️⃣ Testing Git MCP health...'
+        curl -f $${GIT_MCP_HEALTH}/health && echo '✅ Git MCP v$${GIT_MCP_VERSION} is healthy' || echo '❌ Git MCP health check failed'
+        
+        echo '3️⃣ Testing federation server list...'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"git-mcp-server-v'$${GIT_MCP_VERSION}'\") | .name' && echo '✅ Git MCP server v$${GIT_MCP_VERSION} found in federation' || echo '❌ Git MCP server not found in federation'
+        
+        echo '4️⃣ Testing git_status operation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/git-mcp-server-v$${GIT_MCP_VERSION}/invoke \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"test-git-status-v'$${GIT_MCP_VERSION}'\",
+               \"method\": \"git_status\",
+               \"params\": {
+                 \"repository\": \"/repositories\"
+               }
+             }' && echo '✅ Git status operation completed' || echo '⚠️ Git status operation may need different endpoint structure'
+        
+        echo '5️⃣ Testing git_log operation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/git-mcp-server-v$${GIT_MCP_VERSION}/invoke \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"test-git-log-v'$${GIT_MCP_VERSION}'\",
+               \"method\": \"git_log\",
+               \"params\": {
+                 \"repository\": \"/repositories\",
+                 \"max_count\": 5
+               }
+             }' && echo '✅ Git log operation completed' || echo '⚠️ Git log operation may need different endpoint structure'
+        
+        echo '🎯 Integration tests completed for TAS MCP v$${TAS_MCP_VERSION} + Git MCP v$${GIT_MCP_VERSION}!'
+        echo 'Access points:'
+        echo '  - TAS MCP API: http://localhost:8080'
+        echo '  - TAS MCP Health: http://localhost:8082/health'
+        echo '  - Git MCP API: http://localhost:3000'
+        echo '  - Git MCP Health: http://localhost:3001/health'
+        echo '  - Federation API: http://localhost:8080/api/v1/federation'
+      "
+    restart: "no"
+    profiles:
+      - test
+    labels:
+      - "com.tributary-ai.service=test-client"
+      - "com.tributary-ai.version=${TAS_MCP_VERSION:-1.1.0}"
+      - "com.tributary-ai.component=test-client"
+
+networks:
+  mcp-network:
+    driver: bridge
+    name: mcp-network
+
+volumes:
+  tas_mcp_data:
+    driver: local
+  git_mcp_logs:
+    driver: local

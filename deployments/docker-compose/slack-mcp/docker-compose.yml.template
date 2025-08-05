@@ -1,0 +1,57 @@
+version: '3.8'
+
+# Template for Slack MCP Server Docker Compose  
+# Copy this file to docker-compose.yml and customize
+
+services:
+  # Slack MCP Server - Slack API integration server
+  slack-mcp:
+    build:
+      context: ../../../
+      dockerfile: deployments/slack-mcp/Dockerfile  # Create this Dockerfile
+      args:
+        VERSION: ${SLACK_MCP_VERSION:-1.0.0}
+        BUILD_DATE: ${BUILD_DATE}
+        VCS_REF: ${VCS_REF}
+    image: tas-mcp/slack-mcp-server:${SLACK_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-slack-server-v${SLACK_MCP_VERSION:-1.0.0}
+    hostname: slack-mcp-server
+    ports:
+      - "3200:3200"   # Slack MCP API
+      - "3201:3201"   # Health check endpoint
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      SLACK_MCP_VERSION: ${SLACK_MCP_VERSION:-1.0.0}
+      MCP_PORT: 3200
+      MCP_HOST: 0.0.0.0
+      LOG_LEVEL: info
+      SERVICE_NAME: tas-mcp-slack-server
+      SERVICE_VERSION: ${SLACK_MCP_VERSION:-1.0.0}
+      # Slack specific configuration
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+      SLACK_API_URL: https://slack.com/api
+    volumes:
+      - slack_mcp_logs:/app/logs
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3201/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "com.tributary-ai.service=slack-mcp-server"
+      - "com.tributary-ai.version=${SLACK_MCP_VERSION:-1.0.0}"
+      - "com.tributary-ai.component=mcp-server"
+
+networks:
+  mcp-network:
+    external: true
+    name: mcp-network
+
+volumes:
+  slack_mcp_logs:
+    driver: local

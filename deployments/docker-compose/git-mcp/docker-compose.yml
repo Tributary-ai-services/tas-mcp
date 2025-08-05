@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # Git MCP Server - Official Git repository server
+  git-mcp:
+    build:
+      context: ../../../
+      dockerfile: deployments/git-mcp/Dockerfile
+      args:
+        VERSION: ${GIT_MCP_VERSION:-1.0.0}
+        BUILD_DATE: ${BUILD_DATE}
+        VCS_REF: ${VCS_REF}
+    image: tas-mcp/git-mcp-server:${GIT_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-git-server-v${GIT_MCP_VERSION:-1.0.0}
+    hostname: git-mcp-server
+    ports:
+      - "3000:3000"   # Git MCP API
+      - "3001:3001"   # Health check endpoint
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+      MCP_PORT: 3000
+      MCP_HOST: 0.0.0.0
+      REPOSITORY_PATH: /repositories
+      LOG_LEVEL: info
+      SERVICE_NAME: tas-mcp-git-server
+      SERVICE_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+    volumes:
+      - ../../../examples/repositories:/repositories
+      - git_mcp_logs:/app/logs
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "com.tributary-ai.service=git-mcp-server"
+      - "com.tributary-ai.version=${GIT_MCP_VERSION:-1.0.0}"
+      - "com.tributary-ai.component=mcp-server"
+
+networks:
+  mcp-network:
+    external: true
+    name: mcp-network
+
+volumes:
+  git_mcp_logs:
+    driver: local

@@ -1,0 +1,56 @@
+version: '3.8'
+
+# Template for GitHub MCP Server Docker Compose
+# Copy this file to docker-compose.yml and customize
+
+services:
+  # GitHub MCP Server - GitHub API integration server
+  github-mcp:
+    build:
+      context: ../../../
+      dockerfile: deployments/github-mcp/Dockerfile  # Create this Dockerfile
+      args:
+        VERSION: ${GITHUB_MCP_VERSION:-1.0.0}
+        BUILD_DATE: ${BUILD_DATE}
+        VCS_REF: ${VCS_REF}
+    image: tas-mcp/github-mcp-server:${GITHUB_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-github-server-v${GITHUB_MCP_VERSION:-1.0.0}
+    hostname: github-mcp-server
+    ports:
+      - "3100:3100"   # GitHub MCP API
+      - "3101:3101"   # Health check endpoint
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      GITHUB_MCP_VERSION: ${GITHUB_MCP_VERSION:-1.0.0}
+      MCP_PORT: 3100
+      MCP_HOST: 0.0.0.0
+      LOG_LEVEL: info
+      SERVICE_NAME: tas-mcp-github-server
+      SERVICE_VERSION: ${GITHUB_MCP_VERSION:-1.0.0}
+      # GitHub specific configuration
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_API_URL: https://api.github.com
+    volumes:
+      - github_mcp_logs:/app/logs
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3101/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "com.tributary-ai.service=github-mcp-server"
+      - "com.tributary-ai.version=${GITHUB_MCP_VERSION:-1.0.0}"
+      - "com.tributary-ai.component=mcp-server"
+
+networks:
+  mcp-network:
+    external: true
+    name: mcp-network
+
+volumes:
+  github_mcp_logs:
+    driver: local

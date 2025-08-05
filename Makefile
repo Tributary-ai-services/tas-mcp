@@ -8,6 +8,11 @@ DOCKER_IMAGE=tas-mcp
 VERSION?=dev
 LDFLAGS=-ldflags "-X main.version=${VERSION}"
 
+# BuildKit is recommended but optional
+# To enable BuildKit features, install docker-buildx:
+# https://docs.docker.com/build/buildx/install/
+DOCKER_BUILD_CMD=docker build
+
 # Default target
 all: clean deps proto build test
 
@@ -105,7 +110,8 @@ dev:
 # Docker build
 docker:
 	@echo "Building Docker image..."
-	docker build -t ${DOCKER_IMAGE}:${VERSION} .
+	@echo "💡 Tip: For faster builds, install docker-buildx: https://docs.docker.com/build/buildx/install/"
+	${DOCKER_BUILD_CMD} -t ${DOCKER_IMAGE}:${VERSION} .
 	docker tag ${DOCKER_IMAGE}:${VERSION} ${DOCKER_IMAGE}:latest
 
 # Docker run

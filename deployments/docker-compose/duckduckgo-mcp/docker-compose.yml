@@ -1,0 +1,82 @@
+# DuckDuckGo MCP Server Docker Compose Configuration
+# Part of TAS MCP Federation - Privacy-focused Web Search Integration
+
+version: '3.8'
+
+networks:
+  mcp-network:
+    external: true
+
+volumes:
+  duckduckgo_mcp_logs:
+    driver: local
+  duckduckgo_mcp_cache:
+    driver: local
+
+services:
+  # DuckDuckGo MCP Server
+  duckduckgo-mcp:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker-compose/duckduckgo-mcp/Dockerfile
+      args:
+        VERSION: ${DUCKDUCKGO_MCP_VERSION:-1.0.0}
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+    image: tas-mcp/duckduckgo-mcp-server:${DUCKDUCKGO_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-duckduckgo-server-v${DUCKDUCKGO_MCP_VERSION:-1.0.0}
+    hostname: duckduckgo-mcp-server
+    restart: unless-stopped
+    environment:
+      # Service Configuration
+      SERVICE_NAME: tas-mcp-duckduckgo-server
+      SERVICE_VERSION: ${DUCKDUCKGO_MCP_VERSION:-1.0.0}
+      DUCKDUCKGO_MCP_VERSION: ${DUCKDUCKGO_MCP_VERSION:-1.0.0}
+      
+      # Search Configuration
+      SEARCH_REGION: ${SEARCH_REGION:-us-en}
+      SAFE_SEARCH: ${SAFE_SEARCH:-moderate}
+      MAX_RESULTS: ${MAX_RESULTS:-10}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-30000}
+      
+      # Rate Limiting
+      SEARCH_RATE_LIMIT: ${SEARCH_RATE_LIMIT:-1}
+      FETCH_RATE_LIMIT: ${FETCH_RATE_LIMIT:-3}
+      
+      # Health Check Configuration
+      HEALTH_CHECK_ENABLED: ${HEALTH_CHECK_ENABLED:-true}
+      HEALTH_PORT: ${HEALTH_PORT:-3402}
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+      
+      # Browser Configuration for Content Extraction
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+    ports:
+      - "${DUCKDUCKGO_MCP_PORT:-3402}:3402"
+    volumes:
+      - duckduckgo_mcp_logs:/app/logs
+      - duckduckgo_mcp_cache:/app/cache
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3402/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+    labels:
+      com.tributary-ai.service: duckduckgo-mcp-server
+      com.tributary-ai.component: search-server
+      com.tributary-ai.version: "${DUCKDUCKGO_MCP_VERSION:-1.0.0}"
+      com.tributary-ai.privacy: "true"
+      com.tributary-ai.search-engine: "duckduckgo"

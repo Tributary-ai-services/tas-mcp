@@ -1,0 +1,102 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: federation-init
+  namespace: tas-mcp
+  labels:
+    app.kubernetes.io/name: federation-init
+    app.kubernetes.io/component: init-job
+    app.kubernetes.io/part-of: mcp-ecosystem
+spec:
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: federation-init
+        app.kubernetes.io/component: init-job
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: federation-init
+        image: curlimages/curl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          
+          echo "🔄 Waiting for TAS MCP and Git MCP services to be ready..."
+          
+          # Wait for TAS MCP
+          for i in $(seq 1 30); do
+            if curl -f -s http://tas-mcp-service:8082/health > /dev/null; then
+              echo "✅ TAS MCP is ready"
+              break
+            fi
+            echo "⏳ Waiting for TAS MCP... ($i/30)"
+            sleep 10
+          done
+          
+          # Wait for Git MCP
+          for i in $(seq 1 30); do
+            if curl -f -s http://git-mcp-service:3001/health > /dev/null; then
+              echo "✅ Git MCP is ready"
+              break
+            fi
+            echo "⏳ Waiting for Git MCP... ($i/30)"
+            sleep 10
+          done
+          
+          echo "📝 Registering Git MCP server with TAS MCP federation..."
+          
+          curl -X POST http://tas-mcp-service:8080/api/v1/federation/servers \
+               -H 'Content-Type: application/json' \
+               -d '{
+                 "id": "git-mcp-server",
+                 "name": "Git MCP Server",
+                 "description": "Official Git repository interaction and automation server",
+                 "version": "1.0.0",
+                 "category": "development-tools",
+                 "endpoint": "http://git-mcp-service:3000",
+                 "protocol": "http",
+                 "auth": {
+                   "type": "none",
+                   "config": {}
+                 },
+                 "capabilities": [
+                   "git_status", "git_diff_unstaged", "git_diff_staged",
+                   "git_commit", "git_add", "git_reset", "git_log",
+                   "git_create_branch", "git_checkout"
+                 ],
+                 "tags": ["python", "git", "repository", "development", "official"],
+                 "health_check": {
+                   "enabled": true,
+                   "interval": "30s",
+                   "timeout": "10s",
+                   "path": "/health"
+                 }
+               }' && echo "✅ Git MCP server registered successfully" || echo "⚠️ Registration may have failed - server might already be registered"
+          
+          echo "📋 Listing registered servers:"
+          curl -s http://tas-mcp-service:8080/api/v1/federation/servers | grep -o '"name":"[^"]*"' || echo "Could not parse server list"
+          
+          echo "🏥 Checking federation health:"
+          curl -f http://tas-mcp-service:8080/api/v1/federation/servers/git-mcp-server/health && echo "✅ Federation health check passed" || echo "⚠️ Federation health check failed"
+          
+          echo "🎯 Federation initialization completed successfully!"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534

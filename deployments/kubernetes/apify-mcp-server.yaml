@@ -1,0 +1,484 @@
+# Apify MCP Server Kubernetes Deployment
+# Comprehensive web scraping and automation server for TAS MCP Federation
+#
+# Usage:
+#   kubectl create secret generic apify-mcp-secrets --from-literal=APIFY_API_TOKEN=your_token_here
+#   kubectl apply -f apify-mcp-server.yaml
+#   kubectl port-forward service/apify-mcp-server 3403:3403
+#
+# Environment Variables:
+#   APIFY_API_TOKEN: Required for full functionality
+#   DEFAULT_MEMORY_MBYTES: Default memory allocation (default: 512)
+#   DEFAULT_TIMEOUT_SECS: Default timeout (default: 300)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tas-mcp-federation
+  labels:
+    name: tas-mcp-federation
+    component: mcp-servers
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apify-mcp-config
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: scraping-server
+    version: "1.0.0"
+data:
+  DEFAULT_MEMORY_MBYTES: "512"
+  DEFAULT_TIMEOUT_SECS: "300"
+  RUN_RATE_LIMIT: "2"
+  API_RATE_LIMIT: "5"
+  HEALTH_CHECK_ENABLED: "true"
+  LOG_LEVEL: "info"
+  NODE_ENV: "production"
+  PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium-browser"
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apify-mcp-secrets
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: scraping-server
+type: Opaque
+data:
+  # APIFY_API_TOKEN: <base64-encoded-token>
+  # Create this secret manually:
+  # kubectl create secret generic apify-mcp-secrets --from-literal=APIFY_API_TOKEN=your_token_here
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apify-mcp-server
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: scraping-server
+    version: "1.0.0"
+    platform: apify
+    capabilities: web-scraping,automation,data-extraction
+spec:
+  replicas: 1  # Single replica due to rate limiting and resource usage
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: apify-mcp-server
+  template:
+    metadata:
+      labels:
+        app: apify-mcp-server
+        component: scraping-server
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3403"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: apify-mcp-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: apify-mcp-server
+        image: tas-mcp/apify-mcp-server:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 3403
+          protocol: TCP
+        - name: health
+          containerPort: 3403
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "tas-mcp-apify-server"
+        - name: SERVICE_VERSION
+          value: "1.0.0"
+        - name: APIFY_MCP_VERSION
+          value: "1.0.0"
+        - name: HEALTH_PORT
+          value: "3403"
+        envFrom:
+        - configMapRef:
+            name: apify-mcp-config
+        - secretRef:
+            name: apify-mcp-secrets
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+            ephemeral-storage: 4Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - SETGID
+            - SETUID
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 15
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 18
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: cache
+          mountPath: /app/cache
+        - name: datasets
+          mountPath: /app/datasets
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: logs
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: cache
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: datasets
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 1Gi
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: apify-mcp-server
+              topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apify-mcp-server
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: scraping-server
+    version: "1.0.0"
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3403"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app: apify-mcp-server
+  ports:
+  - name: http
+    port: 3403
+    targetPort: http
+    protocol: TCP
+  - name: health
+    port: 8080
+    targetPort: health
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: apify-mcp-service-account
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: scraping-server
+automountServiceAccountToken: false
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apify-mcp-network-policy
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: scraping-server
+spec:
+  podSelector:
+    matchLabels:
+      app: apify-mcp-server
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: tas-mcp-federation
+    - podSelector:
+        matchLabels:
+          app: tas-mcp-server
+    ports:
+    - protocol: TCP
+      port: 3403
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 3403
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+    - protocol: UDP
+      port: 53
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: UDP
+      port: 53
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 1024
+    - protocol: TCP
+      port: 65535
+
+---
+# Optional: Horizontal Pod Autoscaler (limited due to rate limiting)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: apify-mcp-server-hpa
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: scraping-server
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: apify-mcp-server
+  minReplicas: 1
+  maxReplicas: 3  # Limited due to API rate limits
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 85
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 600  # Longer stabilization for scraping workloads
+      policies:
+      - type: Percent
+        value: 25
+        periodSeconds: 120
+    scaleUp:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+
+---
+# Optional: Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: apify-mcp-server-pdb
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: scraping-server
+spec:
+  selector:
+    matchLabels:
+      app: apify-mcp-server
+  minAvailable: 0  # Allow disruption since we can restart quickly
+
+---
+# Optional: ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: apify-mcp-server
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: scraping-server
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: apify-mcp-server
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 15s
+  namespaceSelector:
+    matchNames:
+    - tas-mcp-federation
+
+---
+# Optional: Job for initial actor cache warm-up
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apify-mcp-actor-warmup
+  namespace: tas-mcp-federation
+  labels:
+    app: apify-mcp-server
+    component: warmup-job
+    version: "1.0.0"
+spec:
+  template:
+    metadata:
+      labels:
+        app: apify-mcp-warmup
+        component: warmup-job
+    spec:
+      serviceAccountName: apify-mcp-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      restartPolicy: OnFailure
+      containers:
+      - name: warmup
+        image: tas-mcp/apify-mcp-server:1.0.0
+        command: ["node", "-e"]
+        args:
+        - |
+          const { ApifyApi } = require('apify-client');
+          const client = new ApifyApi({ token: process.env.APIFY_API_TOKEN });
+          
+          async function warmup() {
+            try {
+              console.log('Warming up popular actors...');
+              const popularActors = [
+                'apify/web-scraper',
+                'apify/instagram-scraper',
+                'apify/google-search-results-scraper'
+              ];
+              
+              for (const actorId of popularActors) {
+                try {
+                  const actor = await client.actor(actorId).get();
+                  console.log(`✓ Cached info for ${actorId}: ${actor.name}`);
+                } catch (error) {
+                  console.warn(`⚠ Failed to cache ${actorId}:`, error.message);
+                }
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+              
+              console.log('Warmup completed');
+              process.exit(0);
+            } catch (error) {
+              console.error('Warmup failed:', error);
+              process.exit(1);
+            }
+          }
+          
+          warmup();
+        envFrom:
+        - configMapRef:
+            name: apify-mcp-config
+        - secretRef:
+            name: apify-mcp-secrets
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          capabilities:
+            drop:
+            - ALL
+  backoffLimit: 3
+  activeDeadlineSeconds: 300

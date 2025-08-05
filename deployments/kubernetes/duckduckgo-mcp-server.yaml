@@ -1,0 +1,378 @@
+# DuckDuckGo MCP Server Kubernetes Deployment
+# Privacy-focused web search server for TAS MCP Federation
+#
+# Usage:
+#   kubectl apply -f duckduckgo-mcp-server.yaml
+#   kubectl port-forward service/duckduckgo-mcp-server 3402:3402
+#
+# Environment Variables:
+#   SEARCH_REGION: Search region code (default: us-en)
+#   SAFE_SEARCH: Safe search level (default: moderate)
+#   MAX_RESULTS: Maximum search results (default: 10)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tas-mcp-federation
+  labels:
+    name: tas-mcp-federation
+    component: mcp-servers
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: duckduckgo-mcp-config
+  namespace: tas-mcp-federation
+  labels:
+    app: duckduckgo-mcp-server
+    component: search-server
+    version: "1.0.0"
+data:
+  SEARCH_REGION: "us-en"
+  SAFE_SEARCH: "moderate"
+  MAX_RESULTS: "10"
+  REQUEST_TIMEOUT: "30000"
+  HEALTH_CHECK_ENABLED: "true"
+  LOG_LEVEL: "info"
+  NODE_ENV: "production"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: duckduckgo-mcp-secrets
+  namespace: tas-mcp-federation
+  labels:
+    app: duckduckgo-mcp-server
+    component: search-server
+type: Opaque
+data:
+  # Add any sensitive configuration here (base64 encoded)
+  # Currently no secrets required for DuckDuckGo MCP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: duckduckgo-mcp-server
+  namespace: tas-mcp-federation
+  labels:
+    app: duckduckgo-mcp-server
+    component: search-server
+    version: "1.0.0"
+    platform: duckduckgo
+    capabilities: web-search,privacy,content-extraction
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: duckduckgo-mcp-server
+  template:
+    metadata:
+      labels:
+        app: duckduckgo-mcp-server
+        component: search-server
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3402"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: duckduckgo-mcp-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: duckduckgo-mcp-server
+        image: tas-mcp/duckduckgo-mcp-server:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 3402
+          protocol: TCP
+        - name: health
+          containerPort: 3402
+          protocol: TCP
+        env:
+        - name: SERVICE_NAME
+          value: "tas-mcp-duckduckgo-server"
+        - name: SERVICE_VERSION
+          value: "1.0.0"
+        - name: DUCKDUCKGO_MCP_VERSION
+          value: "1.0.0"
+        - name: HEALTH_PORT
+          value: "3402"
+        envFrom:
+        - configMapRef:
+            name: duckduckgo-mcp-config
+        - secretRef:
+            name: duckduckgo-mcp-secrets
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+            ephemeral-storage: 1Gi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+            ephemeral-storage: 2Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 10001
+          runAsGroup: 10001
+          capabilities:
+            drop:
+            - ALL
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 12
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: cache
+          mountPath: /app/cache
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: logs
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: cache
+        emptyDir:
+          sizeLimit: 512Mi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 512Mi
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - key: "node.kubernetes.io/not-ready"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      - key: "node.kubernetes.io/unreachable"
+        operator: "Exists"
+        effect: "NoExecute"
+        tolerationSeconds: 300
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: duckduckgo-mcp-server
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: duckduckgo-mcp-server
+  namespace: tas-mcp-federation
+  labels:
+    app: duckduckgo-mcp-server
+    component: search-server
+    version: "1.0.0"
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3402"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app: duckduckgo-mcp-server
+  ports:
+  - name: http
+    port: 3402
+    targetPort: http
+    protocol: TCP
+  - name: health
+    port: 8080
+    targetPort: health
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: duckduckgo-mcp-service-account
+  namespace: tas-mcp-federation
+  labels:
+    app: duckduckgo-mcp-server
+    component: search-server
+automountServiceAccountToken: false
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: duckduckgo-mcp-network-policy
+  namespace: tas-mcp-federation
+  labels:
+    app: duckduckgo-mcp-server
+    component: search-server
+spec:
+  podSelector:
+    matchLabels:
+      app: duckduckgo-mcp-server
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: tas-mcp-federation
+    - podSelector:
+        matchLabels:
+          app: tas-mcp-server
+    ports:
+    - protocol: TCP
+      port: 3402
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 3402
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+    - protocol: UDP
+      port: 53
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: UDP
+      port: 53
+
+---
+# Optional: Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: duckduckgo-mcp-server-hpa
+  namespace: tas-mcp-federation
+  labels:
+    app: duckduckgo-mcp-server
+    component: search-server
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: duckduckgo-mcp-server
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+
+---
+# Optional: Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: duckduckgo-mcp-server-pdb
+  namespace: tas-mcp-federation
+  labels:
+    app: duckduckgo-mcp-server
+    component: search-server
+spec:
+  selector:
+    matchLabels:
+      app: duckduckgo-mcp-server
+  minAvailable: 1
+
+---
+# Optional: ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: duckduckgo-mcp-server
+  namespace: tas-mcp-federation
+  labels:
+    app: duckduckgo-mcp-server
+    component: search-server
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: duckduckgo-mcp-server
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+  namespaceSelector:
+    matchNames:
+    - tas-mcp-federation

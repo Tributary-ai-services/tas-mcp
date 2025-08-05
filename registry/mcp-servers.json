@@ -516,6 +516,333 @@
       "tags": ["nodejs", "discord", "bot", "community"],
       "created": "2024-07-31T18:00:00Z",
       "updated": "2024-07-31T18:00:00Z"
+    },
+    {
+      "id": "git-mcp-server",
+      "name": "Git MCP Server",
+      "description": "Official Git repository interaction and automation server from Model Context Protocol",
+      "version": "1.0.0",
+      "category": "development-tools",
+      "provider": {
+        "name": "Model Context Protocol",
+        "website": "https://modelcontextprotocol.io",
+        "contact": "https://github.com/modelcontextprotocol/servers"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/modelcontextprotocol/servers",
+        "branch": "main",
+        "path": "src/git"
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Git status and diff operations",
+        "Branch creation and switching",
+        "Commit and staging operations",
+        "Repository history access",
+        "File manipulation via Git",
+        "Working tree management"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["http"]
+      },
+      "deployment": {
+        "docker": "modelcontextprotocol/git-server:latest"
+      },
+      "documentation": {
+        "readme": "https://github.com/modelcontextprotocol/servers/blob/main/src/git/README.md",
+        "api": "https://modelcontextprotocol.io/docs"
+      },
+      "capabilities": [
+        "git_status",
+        "git_diff_unstaged", 
+        "git_diff_staged",
+        "git_commit",
+        "git_add",
+        "git_reset",
+        "git_log",
+        "git_create_branch",
+        "git_checkout"
+      ],
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2025-08-04T00:00:00Z"
+      },
+      "tags": ["python", "git", "repository", "development", "official"],
+      "created": "2025-08-04T00:00:00Z",
+      "updated": "2025-08-04T00:00:00Z"
+    },
+    {
+      "id": "postgres-mcp-server",
+      "name": "PostgreSQL MCP Server",
+      "description": "Advanced PostgreSQL database integration server with read-only access, schema inspection, and query analysis",
+      "version": "1.0.0",
+      "category": "database",
+      "provider": {
+        "name": "TAS MCP Federation",
+        "website": "https://github.com/tributary-ai-services/tas-mcp",
+        "contact": "https://github.com/tributary-ai-services/tas-mcp/issues"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/tributary-ai-services/tas-mcp",
+        "branch": "main",
+        "path": "deployments/postgres-mcp"
+      },
+      "endpoints": {
+        "http": ["http://localhost:3400"],
+        "health": ["http://localhost:3401/health"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none", "basic-auth", "connection-string"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Read-only SQL query execution",
+        "Comprehensive schema inspection",
+        "Table and column metadata access",
+        "Query execution plan analysis",
+        "Connection pooling and management",
+        "Security-first read-only transactions",
+        "Health monitoring and metrics",
+        "Docker and Kubernetes deployment"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["stdio", "http"]
+      },
+      "deployment": {
+        "docker": "tas-mcp/postgres-mcp-server:1.0.0",
+        "kubernetes": true,
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/tributary-ai-services/tas-mcp/blob/main/deployments/postgres-mcp/README.md",
+        "api": "https://github.com/tributary-ai-services/tas-mcp/blob/main/docs/POSTGRES_MCP_INTEGRATION.md"
+      },
+      "capabilities": [
+        "query",
+        "describe_table",
+        "list_tables", 
+        "analyze_query",
+        "schema_inspection",
+        "connection_health"
+      ],
+      "configuration": {
+        "required": {
+          "DATABASE_URL": "PostgreSQL connection string"
+        },
+        "optional": {
+          "READ_ONLY": "Enable read-only mode (default: true)",
+          "MAX_CONNECTIONS": "Maximum connection pool size (default: 10)",
+          "QUERY_TIMEOUT": "Query timeout in milliseconds (default: 30000)",
+          "HEALTH_CHECK_ENABLED": "Enable health check endpoint (default: true)"
+        }
+      },
+      "security": {
+        "readOnlyMode": true,
+        "transactionIsolation": "READ ONLY",
+        "connectionPooling": true,
+        "queryValidation": true,
+        "sqlInjectionProtection": true
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2025-08-04T00:00:00Z"
+      },
+      "tags": ["nodejs", "postgresql", "database", "sql", "read-only", "federation"],
+      "created": "2025-08-04T00:00:00Z",
+      "updated": "2025-08-04T00:00:00Z"
+    },
+    {
+      "id": "duckduckgo-mcp-server",
+      "name": "DuckDuckGo MCP Server",
+      "description": "Privacy-focused web search server using DuckDuckGo with content extraction and image search capabilities",
+      "version": "1.0.0",
+      "category": "search",
+      "provider": {
+        "name": "TAS MCP Federation",
+        "website": "https://github.com/tributary-ai-services/tas-mcp",
+        "contact": "https://github.com/tributary-ai-services/tas-mcp/issues"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/tributary-ai-services/tas-mcp",
+        "branch": "main",
+        "path": "deployments/docker-compose/duckduckgo-mcp"
+      },
+      "endpoints": {
+        "health": ["http://localhost:3402/health"],
+        "metrics": ["http://localhost:3402/metrics"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false,
+        "privacyFocused": true
+      },
+      "features": [
+        "Privacy-focused web search via DuckDuckGo",
+        "News search with time filtering",
+        "Image search with advanced filters",
+        "Webpage content extraction and parsing",
+        "No user tracking or data collection",
+        "Rate limiting and request management",
+        "Health monitoring and metrics",
+        "Docker and Kubernetes deployment"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["stdio", "http"]
+      },
+      "deployment": {
+        "docker": "tas-mcp/duckduckgo-mcp-server:1.0.0",
+        "kubernetes": true,
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/tributary-ai-services/tas-mcp/blob/main/deployments/docker-compose/duckduckgo-mcp/README.md",
+        "api": "https://github.com/tributary-ai-services/tas-mcp/blob/main/docs/DUCKDUCKGO_MCP_INTEGRATION.md"
+      },
+      "capabilities": [
+        "search",
+        "search_news",
+        "search_images",
+        "fetch_content"
+      ],
+      "configuration": {
+        "required": {},
+        "optional": {
+          "SEARCH_REGION": "Search region code (default: us-en)",
+          "SAFE_SEARCH": "Safe search level: strict/moderate/off (default: moderate)",
+          "MAX_RESULTS": "Maximum search results (default: 10)",
+          "REQUEST_TIMEOUT": "Request timeout in milliseconds (default: 30000)",
+          "HEALTH_CHECK_ENABLED": "Enable health check endpoint (default: true)"
+        }
+      },
+      "privacy": {
+        "noTracking": true,
+        "noStoredHistory": true,
+        "anonymousSearch": true,
+        "noPersonalData": true
+      },
+      "rateLimiting": {
+        "searchRequests": "1 request per second",
+        "contentFetch": "3 concurrent requests",
+        "burstLimit": "30 requests per minute"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2025-08-04T00:00:00Z"
+      },
+      "tags": ["nodejs", "duckduckgo", "search", "privacy", "web-scraping", "federation"],
+      "created": "2025-08-04T00:00:00Z",
+      "updated": "2025-08-04T00:00:00Z"
+    },
+    {
+      "id": "apify-mcp-server",
+      "name": "Apify MCP Server",
+      "description": "Comprehensive web scraping and automation server using Apify platform with access to 5,000+ actors",
+      "version": "1.0.0",
+      "category": "web-scraping",
+      "provider": {
+        "name": "TAS MCP Federation",
+        "website": "https://github.com/tributary-ai-services/tas-mcp",
+        "contact": "https://github.com/tributary-ai-services/tas-mcp/issues"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/tributary-ai-services/tas-mcp",
+        "branch": "main",
+        "path": "deployments/docker-compose/apify-mcp"
+      },
+      "endpoints": {
+        "health": ["http://localhost:3403/health"],
+        "metrics": ["http://localhost:3403/metrics"]
+      },
+      "access": {
+        "type": "freemium",
+        "authentication": ["api-key"],
+        "registrationRequired": true,
+        "registrationUrl": "https://console.apify.com/sign-up"
+      },
+      "features": [
+        "Access to 5,000+ Apify actors for web scraping",
+        "Dynamic actor discovery and management",
+        "Web scraping for e-commerce, social media, news",
+        "Real-time data extraction and processing",
+        "Custom scraping configurations",
+        "Dataset management and export",
+        "Rate limiting and resource management", 
+        "Docker and Kubernetes deployment"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["stdio", "http"]
+      },
+      "deployment": {
+        "docker": "tas-mcp/apify-mcp-server:1.0.0",
+        "kubernetes": true,
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/tributary-ai-services/tas-mcp/blob/main/deployments/docker-compose/apify-mcp/README.md",
+        "api": "https://github.com/tributary-ai-services/tas-mcp/blob/main/docs/APIFY_MCP_INTEGRATION.md"
+      },
+      "capabilities": [
+        "run_actor",
+        "get_actor_info",
+        "search_actors",
+        "get_run_status",
+        "get_dataset_items",
+        "scrape_url"
+      ],
+      "configuration": {
+        "required": {
+          "APIFY_API_TOKEN": "Apify API token for full functionality"
+        },
+        "optional": {
+          "DEFAULT_MEMORY_MBYTES": "Default memory allocation in MB (default: 512)",
+          "DEFAULT_TIMEOUT_SECS": "Default timeout seconds (default: 300)",
+          "RUN_RATE_LIMIT": "Concurrent actor runs (default: 2)",
+          "API_RATE_LIMIT": "Concurrent API calls (default: 5)",
+          "HEALTH_CHECK_ENABLED": "Enable health check endpoint (default: true)"
+        }
+      },
+      "popularActors": [
+        "apify/web-scraper",
+        "apify/instagram-scraper", 
+        "apify/google-search-results-scraper",
+        "apify/amazon-product-scraper",
+        "apify/linkedin-company-scraper"
+      ],
+      "categories": [
+        "E_COMMERCE",
+        "SOCIAL_MEDIA",
+        "TRAVEL",
+        "NEWS", 
+        "SEO",
+        "DEVELOPER_TOOLS",
+        "ENTERTAINMENT"
+      ],
+      "rateLimiting": {
+        "actorRuns": "2 concurrent runs",
+        "apiCalls": "5 concurrent calls",
+        "requestsPerMinute": "Based on Apify account limits"
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2025-08-04T00:00:00Z"
+      },
+      "tags": ["nodejs", "apify", "web-scraping", "automation", "data-extraction", "federation"],
+      "created": "2025-08-04T00:00:00Z",
+      "updated": "2025-08-04T00:00:00Z"
     }
   ]
 }

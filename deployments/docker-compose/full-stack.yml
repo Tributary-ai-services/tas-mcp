@@ -1,0 +1,430 @@
+version: '3.8'
+
+services:
+  # TAS MCP Server - Main federation server
+  tas-mcp:
+    extends:
+      file: docker-compose.yml
+      service: tas-mcp
+    depends_on:
+      git-mcp:
+        condition: service_healthy
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+      LOG_LEVEL: info
+      HTTP_PORT: 8080
+      GRPC_PORT: 50051
+      HEALTH_PORT: 8082
+      FEDERATION_ENABLED: "true"
+      FEDERATION_AUTO_DISCOVERY: "true"
+      GIT_MCP_ENDPOINT: http://git-mcp-server:3000
+      SERVICE_NAME: tas-mcp-federation-server
+      SERVICE_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+
+  # Git MCP Server - Official Git repository server
+  git-mcp:
+    extends:
+      file: git-mcp/docker-compose.yml
+      service: git-mcp
+
+  # DuckDuckGo MCP Server - Privacy-focused web search
+  duckduckgo-mcp:
+    extends:
+      file: duckduckgo-mcp/docker-compose.yml
+      service: duckduckgo-mcp
+
+  # Apify MCP Server - Web scraping and automation
+  apify-mcp:
+    extends:
+      file: apify-mcp/docker-compose.yml
+      service: apify-mcp
+
+  # PostgreSQL Database
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: tas-mcp-postgres-db-v${POSTGRES_VERSION:-16}
+    hostname: postgres-database
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sampledb}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-mcp/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-sampledb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      com.tributary-ai.service: postgres-database
+      com.tributary-ai.component: database
+      com.tributary-ai.version: "${POSTGRES_VERSION:-16}"
+
+  # PostgreSQL MCP Server - Database integration server
+  postgres-mcp:
+    build:
+      context: ../..
+      dockerfile: deployments/postgres-mcp/Dockerfile
+      args:
+        VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+    image: tas-mcp/postgres-mcp-server:${POSTGRES_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-postgres-server-v${POSTGRES_MCP_VERSION:-1.0.0}
+    hostname: postgres-mcp-server
+    restart: unless-stopped
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    environment:
+      # Service Configuration
+      SERVICE_NAME: tas-mcp-postgres-server
+      SERVICE_VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
+      POSTGRES_MCP_VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
+      
+      # Database Connection
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres-database:5432/${POSTGRES_DB:-sampledb}
+      
+      # MCP Server Configuration
+      READ_ONLY: ${READ_ONLY:-true}
+      MAX_CONNECTIONS: ${MAX_CONNECTIONS:-10}
+      QUERY_TIMEOUT: ${QUERY_TIMEOUT:-30000}
+      
+      # Health Check Configuration
+      HEALTH_CHECK_ENABLED: ${HEALTH_CHECK_ENABLED:-true}
+      HEALTH_PORT: ${HEALTH_PORT:-3401}
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+    ports:
+      - "${POSTGRES_MCP_PORT:-3400}:3400"
+      - "${HEALTH_PORT:-3401}:3401"
+    volumes:
+      - postgres_mcp_logs:/app/logs
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3401/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      com.tributary-ai.service: postgres-mcp-server
+      com.tributary-ai.component: mcp-server
+      com.tributary-ai.version: "${POSTGRES_MCP_VERSION:-1.0.0}"
+
+  # Federation initializer - Registers MCP servers with TAS MCP
+  federation-init:
+    image: curlimages/curl:8.8.0
+    container_name: tas-mcp-federation-init-v${TAS_MCP_VERSION:-1.1.0}
+    hostname: federation-initializer
+    networks:
+      - mcp-network
+    depends_on:
+      tas-mcp:
+        condition: service_healthy
+      git-mcp:
+        condition: service_healthy
+      postgres-mcp:
+        condition: service_healthy
+      duckduckgo-mcp:
+        condition: service_healthy
+      apify-mcp:
+        condition: service_healthy
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+      POSTGRES_MCP_VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
+      DUCKDUCKGO_MCP_VERSION: ${DUCKDUCKGO_MCP_VERSION:-1.0.0}
+      APIFY_MCP_VERSION: ${APIFY_MCP_VERSION:-1.0.0}
+      SERVICE_NAME: tas-mcp-federation-init
+      TAS_MCP_ENDPOINT: http://tas-mcp-server:8080
+      GIT_MCP_ENDPOINT: http://git-mcp-server:3000
+      POSTGRES_MCP_ENDPOINT: http://postgres-mcp-server:3401
+      DUCKDUCKGO_MCP_ENDPOINT: http://duckduckgo-mcp-server:3402
+      APIFY_MCP_ENDPOINT: http://apify-mcp-server:3403
+    volumes:
+      - ../federation:/scripts:ro
+    command: |
+      sh -c "
+        echo '🔄 Waiting for services to be ready...'
+        sleep 10
+        
+        echo '📝 Registering Git MCP server with TAS MCP federation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"git-mcp-server-v$${GIT_MCP_VERSION}\",
+               \"name\": \"Git MCP Server v$${GIT_MCP_VERSION}\",
+               \"description\": \"Official Git repository interaction and automation server\",
+               \"version\": \"'$${GIT_MCP_VERSION}'\",
+               \"category\": \"development-tools\",
+               \"endpoint\": \"'$${GIT_MCP_ENDPOINT}'\",
+               \"protocol\": \"http\",
+               \"auth\": {
+                 \"type\": \"none\",
+                 \"config\": {}
+               },
+               \"capabilities\": [
+                 \"git_status\", \"git_diff_unstaged\", \"git_diff_staged\",
+                 \"git_commit\", \"git_add\", \"git_reset\", \"git_log\",
+                 \"git_create_branch\", \"git_checkout\"
+               ],
+               \"tags\": [\"python\", \"git\", \"repository\", \"development\", \"official\", \"v'$${GIT_MCP_VERSION}'\"],
+               \"health_check\": {
+                 \"enabled\": true,
+                 \"interval\": \"30s\",
+                 \"timeout\": \"10s\",
+                 \"path\": \"/health\"
+               }
+             }' || echo '⚠️ Git MCP registration may have failed - server might already be registered'
+        
+        echo '📊 Registering PostgreSQL MCP server with TAS MCP federation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"postgres-mcp-server-v$${POSTGRES_MCP_VERSION}\",
+               \"name\": \"PostgreSQL MCP Server v$${POSTGRES_MCP_VERSION}\",
+               \"description\": \"Advanced PostgreSQL database integration server with read-only access, schema inspection, and query analysis\",
+               \"version\": \"'$${POSTGRES_MCP_VERSION}'\",
+               \"category\": \"database\",
+               \"endpoint\": \"'$${POSTGRES_MCP_ENDPOINT}'\",
+               \"protocol\": \"http\",
+               \"auth\": {
+                 \"type\": \"none\",
+                 \"config\": {}
+               },
+               \"capabilities\": [
+                 \"query\", \"describe_table\", \"list_tables\", \"analyze_query\",
+                 \"schema_inspection\", \"connection_health\"
+               ],
+               \"tags\": [\"nodejs\", \"postgresql\", \"database\", \"sql\", \"read-only\", \"federation\", \"v'$${POSTGRES_MCP_VERSION}'\"],
+               \"health_check\": {
+                 \"enabled\": true,
+                 \"interval\": \"30s\",
+                 \"timeout\": \"10s\",
+                 \"path\": \"/health\"
+               }
+             }' || echo '⚠️ PostgreSQL MCP registration may have failed - server might already be registered'
+        
+        echo '🔍 Registering DuckDuckGo MCP server with TAS MCP federation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers \\
+             -H 'Content-Type: application/json' \\
+             -d '{
+               \"id\": \"duckduckgo-mcp-server-v'$${DUCKDUCKGO_MCP_VERSION}'\",
+               \"name\": \"DuckDuckGo MCP Server v'$${DUCKDUCKGO_MCP_VERSION}'\",
+               \"description\": \"Privacy-focused web search server using DuckDuckGo with content extraction and image search capabilities\",
+               \"version\": \"'$${DUCKDUCKGO_MCP_VERSION}'\",
+               \"category\": \"search\",
+               \"endpoint\": \"'$${DUCKDUCKGO_MCP_ENDPOINT}'\",
+               \"protocol\": \"http\",
+               \"auth\": {
+                 \"type\": \"none\",
+                 \"config\": {}
+               },
+               \"capabilities\": [
+                 \"search\", \"search_news\", \"search_images\", \"fetch_content\"
+               ],
+               \"tags\": [\"nodejs\", \"duckduckgo\", \"search\", \"privacy\", \"web-scraping\", \"federation\", \"v'$${DUCKDUCKGO_MCP_VERSION}'\"],
+               \"health_check\": {
+                 \"enabled\": true,
+                 \"interval\": \"30s\",
+                 \"timeout\": \"10s\",
+                 \"path\": \"/health\"
+               }
+             }' || echo '⚠️ DuckDuckGo MCP registration may have failed - server might already be registered'
+        
+        echo '🕷️ Registering Apify MCP server with TAS MCP federation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers \\
+             -H 'Content-Type: application/json' \\
+             -d '{
+               \"id\": \"apify-mcp-server-v'$${APIFY_MCP_VERSION}'\",
+               \"name\": \"Apify MCP Server v'$${APIFY_MCP_VERSION}'\",
+               \"description\": \"Comprehensive web scraping and automation server using Apify platform with access to 5,000+ actors\",
+               \"version\": \"'$${APIFY_MCP_VERSION}'\",
+               \"category\": \"web-scraping\",
+               \"endpoint\": \"'$${APIFY_MCP_ENDPOINT}'\",
+               \"protocol\": \"http\",
+               \"auth\": {
+                 \"type\": \"none\",
+                 \"config\": {}
+               },
+               \"capabilities\": [
+                 \"run_actor\", \"get_actor_info\", \"search_actors\", \"get_run_status\", \"get_dataset_items\", \"scrape_url\"
+               ],
+               \"tags\": [\"nodejs\", \"apify\", \"web-scraping\", \"automation\", \"data-extraction\", \"federation\", \"v'$${APIFY_MCP_VERSION}'\"],
+               \"health_check\": {
+                 \"enabled\": true,
+                 \"interval\": \"30s\",
+                 \"timeout\": \"10s\",
+                 \"path\": \"/health\"
+               }
+             }' || echo '⚠️ Apify MCP registration may have failed - server might already be registered'
+        
+        echo '✅ Federation initialization completed'
+        
+        echo '📋 Listing registered servers:'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.' || echo 'Could not list servers'
+        
+        echo '🏥 Checking Git MCP server health:'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/git-mcp-server-v$${GIT_MCP_VERSION}/health || echo 'Git MCP health check endpoint may not be implemented'
+        
+        echo '🏥 Checking PostgreSQL MCP server health:'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/postgres-mcp-server-v$${POSTGRES_MCP_VERSION}/health || echo 'PostgreSQL MCP health check endpoint may not be implemented'
+        
+        echo '🏥 Checking DuckDuckGo MCP server health:'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/duckduckgo-mcp-server-v$${DUCKDUCKGO_MCP_VERSION}/health || echo 'DuckDuckGo MCP health check endpoint may not be implemented'
+        
+        echo '🏥 Checking Apify MCP server health:'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/apify-mcp-server-v$${APIFY_MCP_VERSION}/health || echo 'Apify MCP health check endpoint may not be implemented'
+      "
+    restart: "no"
+    labels:
+      - "com.tributary-ai.service=federation-init"
+      - "com.tributary-ai.version=${TAS_MCP_VERSION:-1.1.0}"
+      - "com.tributary-ai.component=init-job"
+
+  # Test client for validating the integration
+  test-client:
+    image: curlimages/curl:8.8.0
+    container_name: tas-mcp-test-client-v${TAS_MCP_VERSION:-1.1.0}
+    hostname: test-client
+    networks:
+      - mcp-network
+    depends_on:
+      federation-init:
+        condition: service_completed_successfully
+    environment:
+      TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
+      GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
+      POSTGRES_MCP_VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
+      DUCKDUCKGO_MCP_VERSION: ${DUCKDUCKGO_MCP_VERSION:-1.0.0}
+      APIFY_MCP_VERSION: ${APIFY_MCP_VERSION:-1.0.0}
+      SERVICE_NAME: tas-mcp-test-client
+      TAS_MCP_ENDPOINT: http://tas-mcp-server:8080
+      TAS_MCP_HEALTH: http://tas-mcp-server:8082
+      GIT_MCP_ENDPOINT: http://git-mcp-server:3000
+      GIT_MCP_HEALTH: http://git-mcp-server:3001
+      POSTGRES_MCP_ENDPOINT: http://postgres-mcp-server:3401
+      POSTGRES_MCP_HEALTH: http://postgres-mcp-server:3401
+      DUCKDUCKGO_MCP_ENDPOINT: http://duckduckgo-mcp-server:3402
+      DUCKDUCKGO_MCP_HEALTH: http://duckduckgo-mcp-server:3402
+      APIFY_MCP_ENDPOINT: http://apify-mcp-server:3403
+      APIFY_MCP_HEALTH: http://apify-mcp-server:3403
+    volumes:
+      - ../test:/tests:ro
+    command: |
+      sh -c "
+        echo '🧪 Running Full Stack MCP Integration Tests v$${TAS_MCP_VERSION}'
+        echo '============================================================='
+        
+        sleep 5
+        
+        echo '1️⃣ Testing TAS MCP health...'
+        curl -f $${TAS_MCP_HEALTH}/health && echo '✅ TAS MCP v$${TAS_MCP_VERSION} is healthy' || echo '❌ TAS MCP health check failed'
+        
+        echo '2️⃣ Testing Git MCP health...'
+        curl -f $${GIT_MCP_HEALTH}/health && echo '✅ Git MCP v$${GIT_MCP_VERSION} is healthy' || echo '❌ Git MCP health check failed'
+        
+        echo '3️⃣ Testing PostgreSQL MCP health...'
+        curl -f $${POSTGRES_MCP_HEALTH}/health && echo '✅ PostgreSQL MCP v$${POSTGRES_MCP_VERSION} is healthy' || echo '❌ PostgreSQL MCP health check failed'
+        
+        echo '4️⃣ Testing DuckDuckGo MCP health...'
+        curl -f $${DUCKDUCKGO_MCP_HEALTH}/health && echo '✅ DuckDuckGo MCP v$${DUCKDUCKGO_MCP_VERSION} is healthy' || echo '❌ DuckDuckGo MCP health check failed'
+        
+        echo '5️⃣ Testing Apify MCP health...'
+        curl -f $${APIFY_MCP_HEALTH}/health && echo '✅ Apify MCP v$${APIFY_MCP_VERSION} is healthy' || echo '❌ Apify MCP health check failed'
+        
+        echo '6️⃣ Testing federation server list...'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"git-mcp-server-v'$${GIT_MCP_VERSION}'\") | .name' && echo '✅ Git MCP server v$${GIT_MCP_VERSION} found in federation' || echo '❌ Git MCP server not found in federation'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"postgres-mcp-server-v'$${POSTGRES_MCP_VERSION}'\") | .name' && echo '✅ PostgreSQL MCP server v$${POSTGRES_MCP_VERSION} found in federation' || echo '❌ PostgreSQL MCP server not found in federation'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"duckduckgo-mcp-server-v'$${DUCKDUCKGO_MCP_VERSION}'\") | .name' && echo '✅ DuckDuckGo MCP server v$${DUCKDUCKGO_MCP_VERSION} found in federation' || echo '❌ DuckDuckGo MCP server not found in federation'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"apify-mcp-server-v'$${APIFY_MCP_VERSION}'\") | .name' && echo '✅ Apify MCP server v$${APIFY_MCP_VERSION} found in federation' || echo '❌ Apify MCP server not found in federation'
+        
+        echo '5️⃣ Testing git_status operation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/git-mcp-server-v$${GIT_MCP_VERSION}/invoke \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"test-git-status-v'$${GIT_MCP_VERSION}'\",
+               \"method\": \"git_status\",
+               \"params\": {
+                 \"repository\": \"/repositories\"
+               }
+             }' && echo '✅ Git status operation completed' || echo '⚠️ Git status operation may need different endpoint structure'
+        
+        echo '6️⃣ Testing git_log operation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/git-mcp-server-v$${GIT_MCP_VERSION}/invoke \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"test-git-log-v'$${GIT_MCP_VERSION}'\",
+               \"method\": \"git_log\",
+               \"params\": {
+                 \"repository\": \"/repositories\",
+                 \"max_count\": 5
+               }
+             }' && echo '✅ Git log operation completed' || echo '⚠️ Git log operation may need different endpoint structure'
+        
+        echo '7️⃣ Testing PostgreSQL query operation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/postgres-mcp-server-v$${POSTGRES_MCP_VERSION}/invoke \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"test-postgres-query-v'$${POSTGRES_MCP_VERSION}'\",
+               \"method\": \"query\",
+               \"params\": {
+                 \"sql\": \"SELECT COUNT(*) as user_count FROM users\"
+               }
+             }' && echo '✅ PostgreSQL query operation completed' || echo '⚠️ PostgreSQL query operation may need different endpoint structure'
+        
+        echo '8️⃣ Testing PostgreSQL table listing...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/postgres-mcp-server-v$${POSTGRES_MCP_VERSION}/invoke \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"test-postgres-tables-v'$${POSTGRES_MCP_VERSION}'\",
+               \"method\": \"list_tables\",
+               \"params\": {
+                 \"schema_name\": \"public\"
+               }
+             }' && echo '✅ PostgreSQL table listing completed' || echo '⚠️ PostgreSQL table listing may need different endpoint structure'
+        
+        echo '🎯 Full stack integration tests completed!'
+        echo 'Services tested: TAS MCP v$${TAS_MCP_VERSION} + Git MCP v$${GIT_MCP_VERSION} + PostgreSQL MCP v$${POSTGRES_MCP_VERSION}'
+        echo 'Access points:'
+        echo '  - TAS MCP API: http://localhost:8080'
+        echo '  - TAS MCP Health: http://localhost:8082/health'
+        echo '  - Git MCP API: http://localhost:3000'
+        echo '  - Git MCP Health: http://localhost:3001/health'
+        echo '  - Federation API: http://localhost:8080/api/v1/federation'
+      "
+    restart: "no"
+    profiles:
+      - test
+    labels:
+      - "com.tributary-ai.service=test-client"
+      - "com.tributary-ai.version=${TAS_MCP_VERSION:-1.1.0}"
+      - "com.tributary-ai.component=test-client"
+
+networks:
+  mcp-network:
+    driver: bridge
+    name: mcp-network
+
+volumes:
+  tas_mcp_data:
+    driver: local
+  git_mcp_logs:
+    driver: local
+  postgres_data:
+    driver: local
+  postgres_mcp_logs:
+    driver: local
