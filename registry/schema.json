@@ -63,6 +63,8 @@
             "file-system",
             "communication",
             "development-tools",
+            "search",
+            "web-scraping",
             "other"
           ],
           "description": "Primary category of the MCP server"
@@ -147,7 +149,7 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "enum": ["none", "api-key", "jwt", "oauth2", "mtls", "basic-auth"]
+                "enum": ["none", "api-key", "jwt", "oauth2", "mtls", "basic-auth", "connection-string"]
               },
               "description": "Supported authentication methods"
             },
@@ -195,7 +197,7 @@
               "type": "array",
               "items": {
                 "type": "string",
-                "enum": ["http", "grpc", "websocket", "tcp", "udp"]
+                "enum": ["http", "grpc", "websocket", "tcp", "udp", "stdio"]
               },
               "description": "Supported transport protocols"
             }
