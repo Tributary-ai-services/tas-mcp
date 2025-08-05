@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tas-mcp
+  labels:
+    name: tas-mcp
+    app.kubernetes.io/name: tas-mcp
+    app.kubernetes.io/part-of: mcp-ecosystem

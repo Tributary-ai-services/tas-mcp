@@ -1,0 +1,99 @@
+# PostgreSQL MCP Server Docker Compose Configuration
+# Part of TAS MCP Federation - Modular Database Integration
+
+version: '3.8'
+
+networks:
+  mcp-network:
+    external: true
+
+volumes:
+  postgres_mcp_logs:
+    driver: local
+  postgres_data:
+    driver: local
+
+services:
+  # PostgreSQL Database
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: tas-mcp-postgres-db-v${POSTGRES_VERSION:-16}
+    hostname: postgres-database
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sampledb}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-sampledb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      com.tributary-ai.service: postgres-database
+      com.tributary-ai.component: database
+      com.tributary-ai.version: "${POSTGRES_VERSION:-16}"
+
+  # PostgreSQL MCP Server
+  postgres-mcp:
+    build:
+      context: ../../..
+      dockerfile: deployments/postgres-mcp/Dockerfile
+      args:
+        VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+    image: tas-mcp/postgres-mcp-server:${POSTGRES_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-postgres-server-v${POSTGRES_MCP_VERSION:-1.0.0}
+    hostname: postgres-mcp-server
+    restart: unless-stopped
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    environment:
+      # Service Configuration
+      SERVICE_NAME: tas-mcp-postgres-server
+      SERVICE_VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
+      POSTGRES_MCP_VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
+      
+      # Database Connection
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres-database:5432/${POSTGRES_DB:-sampledb}
+      
+      # MCP Server Configuration
+      READ_ONLY: ${READ_ONLY:-true}
+      MAX_CONNECTIONS: ${MAX_CONNECTIONS:-10}
+      QUERY_TIMEOUT: ${QUERY_TIMEOUT:-30000}
+      
+      # Health Check Configuration
+      HEALTH_CHECK_ENABLED: ${HEALTH_CHECK_ENABLED:-true}
+      HEALTH_PORT: ${HEALTH_PORT:-3401}
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+    ports:
+      - "${POSTGRES_MCP_PORT:-3400}:3400"
+      - "${HEALTH_PORT:-3401}:3401"
+    volumes:
+      - postgres_mcp_logs:/app/logs
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3401/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      com.tributary-ai.service: postgres-mcp-server
+      com.tributary-ai.component: mcp-server
+      com.tributary-ai.version: "${POSTGRES_MCP_VERSION:-1.0.0}"

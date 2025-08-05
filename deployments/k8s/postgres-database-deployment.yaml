@@ -1,0 +1,157 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-database
+  namespace: tas-mcp
+  labels:
+    app: postgres-database
+    tier: database
+    component: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Important for stateful services
+  selector:
+    matchLabels:
+      app: postgres-database
+      tier: database
+  template:
+    metadata:
+      labels:
+        app: postgres-database
+        tier: database
+        component: database
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_DB
+          value: "sampledb"
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_INITDB_ARGS
+          value: "--encoding=UTF8 --locale=C"
+        - name: PGDATA
+          value: "/var/lib/postgresql/data/pgdata"
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        - name: postgres-config
+          mountPath: /etc/postgresql/postgresql.conf
+          subPath: postgresql.conf
+        - name: postgres-config  
+          mountPath: /etc/postgresql/pg_hba.conf
+          subPath: pg_hba.conf
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d/01-extensions.sql
+          subPath: 01-extensions.sql
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d/02-monitoring.sql
+          subPath: 02-monitoring.sql
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d/03-sample-queries.sql
+          subPath: 03-sample-queries.sql
+        - name: sample-data
+          mountPath: /docker-entrypoint-initdb.d/99-sample-data.sql
+          subPath: init-db.sql
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "pg_isready -U postgres -d sampledb"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "pg_isready -U postgres -d sampledb && psql -U postgres -d sampledb -c 'SELECT 1;'"
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+          runAsGroup: 999
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: false  # PostgreSQL needs to write to /tmp
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-data-pvc
+      - name: postgres-config
+        configMap:
+          name: postgres-db-config
+      - name: init-scripts
+        configMap:
+          name: postgres-init-scripts
+      - name: sample-data
+        configMap:
+          name: postgres-sample-data
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 999
+        fsGroupChangePolicy: "OnRootMismatch"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-database
+  namespace: tas-mcp
+  labels:
+    app: postgres-database
+    tier: database
+    component: database
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+    name: postgres
+  selector:
+    app: postgres-database
+    tier: database
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data-pvc
+  namespace: tas-mcp
+  labels:
+    app: postgres-database
+    tier: database
+    component: storage
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: "standard"  # Adjust based on your cluster

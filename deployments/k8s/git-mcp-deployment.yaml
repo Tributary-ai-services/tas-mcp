@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-mcp-server
+  namespace: tas-mcp
+  labels:
+    app.kubernetes.io/name: git-mcp-server
+    app.kubernetes.io/component: mcp-server
+    app.kubernetes.io/part-of: mcp-ecosystem
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: git-mcp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: git-mcp-server
+        app.kubernetes.io/component: mcp-server
+    spec:
+      containers:
+      - name: git-mcp
+        image: tas-mcp/git-mcp-server:1.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: mcp-api
+          containerPort: 3000
+          protocol: TCP
+        - name: health
+          containerPort: 3001
+          protocol: TCP
+        env:
+        - name: MCP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: git-mcp-config
+              key: MCP_PORT
+        - name: MCP_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: git-mcp-config
+              key: MCP_HOST
+        - name: REPOSITORY_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: git-mcp-config
+              key: REPOSITORY_PATH
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: git-mcp-config
+              key: LOG_LEVEL
+        volumeMounts:
+        - name: repositories
+          mountPath: /repositories
+        - name: logs  
+          mountPath: /app/logs
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: health
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: repositories
+        persistentVolumeClaim:
+          claimName: git-repositories-pvc
+      - name: logs
+        persistentVolumeClaim:
+          claimName: git-mcp-logs-pvc
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000

@@ -1,0 +1,28 @@
+{
+  "name": "postgres-mcp-server",
+  "version": "1.0.0",
+  "description": "PostgreSQL Model Context Protocol Server for TAS MCP Federation",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1",
+    "yargs": "^17.7.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "postgresql",
+    "database",
+    "ai",
+    "federation"
+  ]
+}

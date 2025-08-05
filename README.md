@@ -219,6 +219,10 @@ The TAS MCP project includes a comprehensive **MCP Server Registry** - a curated
 - **🔧 Data Processing** - ETL and data transformation services
 - **📊 Monitoring** - Observability and metrics collection
 - **💬 Communication** - Chat bots and messaging integrations
+- **🔍 Search** - Web search and content discovery services
+- **🕷️ Web Scraping** - Data extraction and automation tools
+- **🗃️ Database** - Database integration and query services
+- **🛠️ Development Tools** - Git, CI/CD, and development utilities
 
 ### 🚀 Using the Registry
 
@@ -231,6 +235,15 @@ cat registry/mcp-servers.json | jq '.servers[] | select(.capabilities[] | contai
 
 # Get deployment information
 cat registry/mcp-servers.json | jq '.servers[] | select(.name == "tas-mcp-server") | .deployment'
+
+# Find privacy-focused search servers
+cat registry/mcp-servers.json | jq '.servers[] | select(.category == "search" and .privacy.noTracking == true)'
+
+# Find web scraping servers
+cat registry/mcp-servers.json | jq '.servers[] | select(.category == "web-scraping")'
+
+# Find database integration servers
+cat registry/mcp-servers.json | jq '.servers[] | select(.category == "database")'
 ```
 
 ### 📋 Registry Features
@@ -244,6 +257,54 @@ cat registry/mcp-servers.json | jq '.servers[] | select(.name == "tas-mcp-server
 See [registry/README.md](registry/README.md) for complete registry documentation and [registry/ENDPOINT_INTEGRATION.md](registry/ENDPOINT_INTEGRATION.md) for integration guides.
 
 ## 🔌 Integrations
+
+### TAS MCP Federation Servers
+
+The project includes several fully-integrated MCP servers ready for deployment:
+
+#### 🔍 DuckDuckGo MCP Server
+- **Privacy-focused web search** with no tracking or data collection
+- **News search** with time filtering capabilities
+- **Image search** with advanced filters (size, color, type)
+- **Content extraction** from web pages
+- Deployment: `deployments/docker-compose/duckduckgo-mcp/`
+
+#### 🕷️ Apify MCP Server
+- **Access to 5,000+ web scraping actors** from the Apify platform
+- **E-commerce, social media, and news scraping**
+- **Custom scraping configurations** and data extraction
+- **Dataset management** and export capabilities
+- Deployment: `deployments/docker-compose/apify-mcp/`
+
+#### 🗃️ PostgreSQL MCP Server
+- **Read-only database access** with security-first design
+- **Schema inspection** and table metadata
+- **Query execution** with performance analysis
+- **Connection pooling** and health monitoring
+- Deployment: `deployments/postgres-mcp/`
+
+#### 🛠️ Git MCP Server
+- **Repository interaction** and automation
+- **Branch management** and commit operations
+- **Status and diff** operations
+- **Working tree management**
+- Based on official Model Context Protocol Git server
+
+### Full-Stack Deployment
+
+```bash
+# Deploy complete federation stack
+cd deployments/docker-compose
+docker-compose -f full-stack.yml up -d
+
+# Check all services
+docker-compose -f full-stack.yml ps
+
+# View federation status
+curl http://localhost:8080/api/v1/federation/servers | jq '.'
+```
+
+See [examples/federation/](examples/federation/) for complete integration examples in Go.
 
 ### Argo Events
 

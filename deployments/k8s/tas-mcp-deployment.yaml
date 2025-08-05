@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tas-mcp-server
+  namespace: tas-mcp
+  labels:
+    app.kubernetes.io/name: tas-mcp-server
+    app.kubernetes.io/component: federation-server
+    app.kubernetes.io/part-of: mcp-ecosystem
+    app.kubernetes.io/version: "1.1.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tas-mcp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tas-mcp-server
+        app.kubernetes.io/component: federation-server
+    spec:
+      containers:
+      - name: tas-mcp
+        image: tas-mcp/server:1.1.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http-api
+          containerPort: 8080
+          protocol: TCP
+        - name: grpc-api
+          containerPort: 50051
+          protocol: TCP
+        - name: health
+          containerPort: 8082
+          protocol: TCP
+        env:
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: tas-mcp-config
+              key: LOG_LEVEL  
+        - name: HTTP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: tas-mcp-config
+              key: HTTP_PORT
+        - name: GRPC_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: tas-mcp-config
+              key: GRPC_PORT
+        - name: HEALTH_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: tas-mcp-config
+              key: HEALTH_PORT
+        - name: FEDERATION_ENABLED
+          valueFrom:
+            configMapKeyRef:
+              name: tas-mcp-config
+              key: FEDERATION_ENABLED
+        - name: FEDERATION_AUTO_DISCOVERY
+          valueFrom:
+            configMapKeyRef:
+              name: tas-mcp-config
+              key: FEDERATION_AUTO_DISCOVERY
+        - name: GIT_MCP_ENDPOINT
+          valueFrom:
+            configMapKeyRef:
+              name: tas-mcp-config
+              key: GIT_MCP_ENDPOINT
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: health
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: logs
+        persistentVolumeClaim:
+          claimName: tas-mcp-logs-pvc
+      - name: config
+        configMap:
+          name: tas-mcp-config
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000

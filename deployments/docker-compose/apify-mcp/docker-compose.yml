@@ -1,0 +1,84 @@
+# Apify MCP Server Docker Compose Configuration
+# Part of TAS MCP Federation - Web Scraping and Automation Integration
+
+version: '3.8'
+
+networks:
+  mcp-network:
+    external: true
+
+volumes:
+  apify_mcp_logs:
+    driver: local
+  apify_mcp_cache:
+    driver: local
+  apify_mcp_datasets:
+    driver: local
+
+services:
+  # Apify MCP Server
+  apify-mcp:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker-compose/apify-mcp/Dockerfile
+      args:
+        VERSION: ${APIFY_MCP_VERSION:-1.0.0}
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+    image: tas-mcp/apify-mcp-server:${APIFY_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-apify-server-v${APIFY_MCP_VERSION:-1.0.0}
+    hostname: apify-mcp-server
+    restart: unless-stopped
+    environment:
+      # Service Configuration
+      SERVICE_NAME: tas-mcp-apify-server
+      SERVICE_VERSION: ${APIFY_MCP_VERSION:-1.0.0}
+      APIFY_MCP_VERSION: ${APIFY_MCP_VERSION:-1.0.0}
+      
+      # Apify Configuration
+      APIFY_API_TOKEN: ${APIFY_API_TOKEN:-}
+      DEFAULT_MEMORY_MBYTES: ${DEFAULT_MEMORY_MBYTES:-512}
+      DEFAULT_TIMEOUT_SECS: ${DEFAULT_TIMEOUT_SECS:-300}
+      
+      # Rate Limiting
+      RUN_RATE_LIMIT: ${RUN_RATE_LIMIT:-2}
+      API_RATE_LIMIT: ${API_RATE_LIMIT:-5}
+      
+      # Health Check Configuration
+      HEALTH_CHECK_ENABLED: ${HEALTH_CHECK_ENABLED:-true}
+      HEALTH_PORT: ${HEALTH_PORT:-3403}
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+      
+      # Browser Configuration for Web Scraping
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+    ports:
+      - "${APIFY_MCP_PORT:-3403}:3403"
+    volumes:
+      - apify_mcp_logs:/app/logs
+      - apify_mcp_cache:/app/cache
+      - apify_mcp_datasets:/app/datasets
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3403/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+    labels:
+      com.tributary-ai.service: apify-mcp-server
+      com.tributary-ai.component: scraping-server
+      com.tributary-ai.version: "${APIFY_MCP_VERSION:-1.0.0}"
+      com.tributary-ai.platform: "apify"
+      com.tributary-ai.capabilities: "web-scraping,automation,data-extraction"

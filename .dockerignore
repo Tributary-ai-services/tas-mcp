@@ -5,11 +5,15 @@
 # Documentation
 *.md
 docs/
+!README.md
 
 # Development files
 .env
 .env.local
 .env.*.local
+.air.toml
+go.work
+go.work.sum
 
 # IDE files
 .vscode/
@@ -32,28 +36,44 @@ bin/
 build/
 dist/
 tmp/
+*.exe
+*.dll
+*.so
+*.dylib
 
 # Test files
 coverage.out
+coverage.html
 *.test
+*.out
+test/
 
 # Example and template files
 examples/
 templates/
 
-# Kubernetes manifests (already in image)
+# Registry files
+registry/
+
+# Kubernetes manifests
 k8s/
-manifests/
+
+# Deployment files (except what we need)
+deployments/
+!deployments/docker-compose/*.yml
+!deployments/**/*.go
 
 # Docker files
 Dockerfile*
 docker-compose*.yml
+!deployments/docker-compose/full-stack.yml
 
 # CI/CD files
 .github/
 .gitlab-ci.yml
 .travis.yml
 .circleci/
+Makefile
 
 # Logs
 *.log
@@ -64,3 +84,6 @@ vendor/
 
 # Node modules (if any)
 node_modules/
+
+# Proto generation (will be regenerated)
+proto/gen/

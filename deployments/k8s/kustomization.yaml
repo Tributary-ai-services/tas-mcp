@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: tas-mcp-deployment
+  
+namespace: tas-mcp
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - git-mcp-deployment.yaml
+  - git-mcp-service.yaml
+  - tas-mcp-deployment.yaml
+  - tas-mcp-service.yaml
+  - federation-init-job.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: mcp-ecosystem
+  app.kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/version: v1.1.0
+
+commonAnnotations:
+  tas-mcp.tributary-ai.com/deployment-version: "1.1.0"
+  tas-mcp.tributary-ai.com/git-mcp-version: "1.0.0"
+
+images:
+  - name: tas-mcp/server
+    newTag: "1.1.0"
+  - name: tas-mcp/git-mcp-server
+    newTag: "1.0.0"
+
+patchesStrategicMerge:
+  - |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: git-mcp-server
+      namespace: tas-mcp
+    spec:
+      template:
+        metadata:
+          annotations:
+            kubectl.kubernetes.io/restartedAt: "2025-08-04T00:00:00Z"
+  - |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: tas-mcp-server
+      namespace: tas-mcp
+    spec:
+      template:
+        metadata:
+          annotations:
+            kubectl.kubernetes.io/restartedAt: "2025-08-04T00:00:00Z"

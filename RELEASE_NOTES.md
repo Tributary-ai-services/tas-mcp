@@ -1,5 +1,157 @@
 # 🚀 TAS MCP Server Release Notes
 
+## Version 1.1.1 - Phase 1 Federation Servers
+*Release Date: August 5, 2025*
+
+### 🎉 Overview
+
+**Major Federation Milestone**: This release completes the first wave of comprehensive MCP server integrations, establishing TAS MCP as a complete AI service orchestration platform. With **4 fully-integrated MCP servers** spanning search, web scraping, database access, and development tools, TAS MCP now provides unified access to essential AI services through a single federation API.
+
+---
+
+## ✨ New Features
+
+### 🔍 DuckDuckGo MCP Server
+- **Privacy-focused web search** with zero tracking or data collection
+- **4 comprehensive search capabilities**:
+  - `search` - Web search with region and safe search controls
+  - `search_news` - News search with time filtering (day/week/month/year)
+  - `search_images` - Image search with size, color, and type filters
+  - `fetch_content` - Webpage content extraction and parsing
+- **Rate limiting**: 1 request/second for search, 3 concurrent for content fetch
+- **Privacy guarantees**: No user tracking, no stored history, anonymous search
+- **Docker & Kubernetes ready** with health monitoring and security hardening
+
+### 🕷️ Apify MCP Server
+- **Access to 5,000+ web scraping actors** from the Apify platform
+- **6 comprehensive scraping capabilities**:
+  - `run_actor` - Execute any Apify actor with custom configurations
+  - `get_actor_info` - Retrieve detailed actor metadata and documentation
+  - `search_actors` - Discover actors by category, popularity, or query
+  - `get_run_status` - Monitor actor execution status and results
+  - `get_dataset_items` - Access extracted data from actor runs
+  - `scrape_url` - Quick URL scraping with custom data extraction
+- **Multi-category support**: E-commerce, social media, news, SEO, developer tools, entertainment, travel
+- **Resource management**: Configurable memory allocation, timeouts, and concurrent limits
+- **Production deployment**: Docker containerization with browser support and security features
+
+### 🗃️ PostgreSQL MCP Server (Enhanced)
+- **Read-only database access** with security-first design
+- **Advanced database capabilities**:
+  - `query` - Execute SELECT queries with performance analysis
+  - `describe_table` - Comprehensive table metadata and schema inspection
+  - `list_tables` - Schema exploration with filtering options
+  - `analyze_query` - Query execution plan analysis and optimization
+  - `schema_inspection` - Database structure analysis
+  - `connection_health` - Connection pooling and health monitoring
+- **Security features**: Read-only transactions, SQL injection protection, connection pooling
+- **Enterprise-ready**: Production deployment with health monitoring and metrics
+
+### 🛠️ Git MCP Server Integration (Enhanced)
+- **Official Git MCP server** integration from Model Context Protocol
+- **Repository automation capabilities**:
+  - `git_status` - Working tree status and changes
+  - `git_diff_unstaged` / `git_diff_staged` - File difference analysis
+  - `git_commit` - Commit creation and management
+  - `git_add` / `git_reset` - Staging area operations
+  - `git_log` - Repository history access
+  - `git_create_branch` / `git_checkout` - Branch management
+- **Full federation integration** with health monitoring and status tracking
+
+---
+
+## 🏗️ Infrastructure Enhancements
+
+### 📦 Full-Stack Deployment
+- **Complete Docker Compose stack** with 4 federated MCP servers
+- **Automated federation registration** with health monitoring
+- **Service orchestration** with dependency management and startup sequencing
+- **Integrated testing client** for end-to-end validation
+- **Health monitoring dashboard** with real-time status tracking
+
+### ☸️ Kubernetes Production Ready
+- **Production-grade manifests** for all federation servers
+- **Advanced Kubernetes features**:
+  - Horizontal Pod Autoscaling (HPA) with CPU and memory metrics
+  - Pod Disruption Budgets (PDB) for high availability
+  - Network policies for security isolation
+  - ServiceMonitor integration for Prometheus monitoring
+  - Resource requests and limits for optimal scheduling
+  - Security contexts with non-root users and read-only filesystems
+- **Multi-platform support**: linux/amd64 and linux/arm64 ready
+
+### 🔧 Docker BuildKit Migration
+- **Enhanced build performance** with optimized layer caching
+- **BuildKit-compatible Dockerfile** with multi-stage builds
+- **Advanced build configuration** via `docker-bake.hcl`
+- **Improved .dockerignore** for faster build contexts
+- **Setup automation** with `scripts/setup-buildkit.sh`
+- **Backwards compatibility** with legacy Docker builder
+
+---
+
+## 📚 Registry & Documentation
+
+### 📖 Comprehensive Registry Updates
+- **4 new server categories** added to registry:
+  - **Search** (DuckDuckGo) - Privacy-focused web search
+  - **Web Scraping** (Apify) - Data extraction and automation
+  - **Database** (PostgreSQL) - SQL database integration
+  - **Development Tools** (Git) - Repository management
+- **Complete metadata** with capabilities, endpoints, configuration options
+- **Privacy and security annotations** for data-sensitive services
+- **Rate limiting documentation** for all services
+
+### 🚀 Integration Examples
+- **Comprehensive Go integration examples** for all 4 servers
+- **Real-world usage scenarios**:
+  - Privacy-focused search patterns (DuckDuckGo)
+  - Multi-category scraping workflows (Apify)
+  - Database schema exploration (PostgreSQL)
+  - Repository automation (Git)
+- **Federation management examples** with health monitoring and error handling
+- **Production deployment patterns** and best practices
+
+---
+
+## 🔒 Security & Quality
+
+### 🛡️ Security Enhancements
+- **Container security hardening** with non-root users and minimal privileges
+- **Network security policies** with ingress/egress controls
+- **Secret management** for API tokens and credentials
+- **Vulnerability scanning** integrated into CI/CD pipeline
+- **Security-first database design** with read-only access and SQL injection protection
+
+### ✅ Code Quality
+- **100% formatting compliance** with automated gofmt/goimports
+- **Comprehensive test coverage** across all new components
+- **Documentation updates** in README.md with federation examples
+- **Development experience improvements** with setup scripts and guides
+
+---
+
+## 🐛 Bug Fixes
+
+- **Fixed** formatting issues in Go integration examples
+- **Resolved** Docker BuildKit compatibility warnings
+- **Enhanced** .dockerignore for optimal build contexts
+- **Improved** health check reliability across all servers
+- **Fixed** missing newlines in example files causing linting errors
+
+---
+
+## Version 1.1.0 - Federation Foundation
+*Release Date: July 15, 2025*
+
+### 🎉 Overview
+
+**Foundation Release**: Complete implementation of MCP federation infrastructure, establishing TAS MCP as a universal MCP orchestrator with comprehensive service discovery, authentication, and health monitoring capabilities.
+
+[Previous v1.1.0 and v1.0.0 content remains unchanged...]
+
+---
+
 ## Version 1.0.0 - Initial Release
 *Release Date: January 31, 2025*
 
