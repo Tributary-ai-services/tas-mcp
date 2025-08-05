@@ -6,25 +6,28 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/tributary-ai-services/tas-mcp.svg)](https://pkg.go.dev/github.com/tributary-ai-services/tas-mcp)
 [![License](https://img.shields.io/github/license/tributary-ai-services/tas-mcp.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/tributary-ai-services/tas-mcp.svg)](https://github.com/tributary-ai-services/tas-mcp/releases)
-[![Join Slack](https://img.shields.io/badge/chat-on%20Slack-blue?logo=slack)](https://join.slack.com/t/tributaryaiservcies/shared_invite/zt-3alfz1o77-kwk3mL~1oBdMAEEY9VEVSw)
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)](https://www.docker.com)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5?style=flat&logo=kubernetes)](https://kubernetes.io)
 [![MCP Federation](https://img.shields.io/badge/MCP-Federation%20Ready-FF6B6B?style=flat&logo=network-wired)](https://github.com/tributary-ai-services/tas-mcp)
 
-The **TAS MCP Server** is a high-performance, cloud-native event gateway and ingestion service that implements the [Model Context Protocol](https://github.com/anthropics/model-context-protocol) to support RAG pipelines, event-driven architectures, and workflow orchestration across distributed AI systems.
+The **TAS MCP Server** is a high-performance, cloud-native event gateway and MCP federation platform that implements the [Model Context Protocol](https://github.com/anthropics/model-context-protocol) to support RAG pipelines, event-driven architectures, and workflow orchestration across distributed AI systems. It provides seamless integration with **4 federated MCP servers** including search, web scraping, database access, and development tools.
 
 ## 🌟 Key Features
 
+- **🔗 MCP Federation**: Unified access to 4+ MCP servers (search, web scraping, database, git)
 - **🚀 Multi-Protocol Support**: HTTP REST API and bidirectional gRPC streaming
 - **🔄 Smart Event Forwarding**: Rule-based routing with condition evaluation
-- **🎯 Event Transformation**: Template-based and programmatic event transformation
+- **🔍 Privacy-Focused Search**: DuckDuckGo integration with zero tracking
+- **🕷️ Web Scraping**: Apify platform access to 5,000+ scraping actors
+- **🗃️ Database Access**: PostgreSQL MCP with security-first design
+- **🛠️ Development Tools**: Git repository automation and management
 - **🔌 Integration Ready**: Native support for Argo Events, Kafka, webhooks, and more
-- **📚 MCP Server Registry**: Comprehensive catalog of MCP servers and capabilities
+- **📚 MCP Server Registry**: Comprehensive catalog of 1,535+ MCP servers
 - **📊 Observability**: Built-in metrics, health checks, and distributed tracing support
 - **🔒 Production Ready**: Rate limiting, circuit breakers, and retry logic
-- **☁️ Cloud Native**: Kubernetes-native with Helm charts and operators
+- **☁️ Cloud Native**: Kubernetes-native with full deployment automation
 - **🎨 Extensible**: Plugin architecture for custom forwarders and processors
 
 ## 🚀 Quick Start

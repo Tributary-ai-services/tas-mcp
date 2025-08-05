@@ -1,6 +1,6 @@
 # 👨‍💻 TAS MCP Server Developer Guide
 
-Welcome to the TAS MCP Server development guide! This document provides comprehensive information for developers who want to contribute to or extend the project.
+Welcome to the TAS MCP Server development guide! This document provides comprehensive information for developers who want to contribute to or extend the project. The TAS MCP Server is a high-performance federation platform that integrates multiple MCP servers including search, web scraping, database access, and development tools.
 
 ## 📋 Table of Contents
 
@@ -18,7 +18,7 @@ Welcome to the TAS MCP Server development guide! This document provides comprehe
 
 ### Prerequisites
 
-- **Go 1.22+** - [Install Go](https://golang.org/doc/install)
+- **Go 1.23+** - [Install Go](https://golang.org/doc/install)
 - **Docker** - [Install Docker](https://docs.docker.com/get-docker/)
 - **Make** - Usually pre-installed on Unix systems
 - **Git** - [Install Git](https://git-scm.com/downloads)
@@ -552,9 +552,9 @@ logger.Debug("Forwarding rule evaluation",
 
 ### Getting Help
 
-- 💬 **Discord**: [Join our community](https://discord.gg/tas-mcp)
 - 📧 **Email**: dev@tributary-ai-services.com
 - 🐛 **Issues**: [GitHub Issues](https://github.com/tributary-ai-services/tas-mcp/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/tributary-ai-services/tas-mcp/discussions)
 
 ## 🚀 Release Process
 
@@ -592,11 +592,18 @@ We follow [Semantic Versioning](https://semver.org/):
 ### CI/CD Pipeline
 
 The project uses GitHub Actions for:
-- Running tests on every PR
+- Running tests on every PR and main branch
 - Building Docker images on merge to main
 - Creating releases on tags
-- Security scanning with Trivy
+- Security scanning with Trivy and Gosec
 - Code coverage reporting
+- CodeQL security analysis with SARIF uploads
+
+**Recent CI Improvements:**
+- Added `security-events: write` permissions for CodeQL integration
+- Implemented graceful cache failure handling with `continue-on-error`
+- Added full git history access with `fetch-depth: 0`
+- Made security scanning steps non-blocking to prevent pipeline failures
 
 ## 📚 Additional Resources
 
