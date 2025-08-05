@@ -1,0 +1,257 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-mcp-server
+  namespace: tas-mcp
+  labels:
+    app: postgres-mcp-server
+    tier: database
+    component: mcp-server
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: postgres-mcp-server
+      tier: database
+  template:
+    metadata:
+      labels:
+        app: postgres-mcp-server
+        tier: database
+        component: mcp-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3401"
+        prometheus.io/path: "/metrics"
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:16-alpine
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for PostgreSQL to be ready..."
+          until pg_isready -h postgres-database -p 5432 -U postgres; do
+            echo "PostgreSQL is not ready yet, waiting..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready!"
+        env:
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_PASSWORD
+      containers:
+      - name: postgres-mcp
+        image: tas-mcp/postgres-mcp-server:1.0.0
+        ports:
+        - containerPort: 3401
+          name: health-http
+          protocol: TCP
+        env:
+        # Service Configuration
+        - name: SERVICE_NAME
+          value: "tas-mcp-postgres-server"
+        - name: SERVICE_VERSION
+          value: "1.0.0"
+        - name: POSTGRES_MCP_VERSION
+          value: "1.0.0"
+        - name: NODE_ENV
+          value: "production"
+        
+        # Database Connection
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: postgres-mcp-credentials
+              key: DATABASE_URL
+        
+        # MCP Server Configuration
+        - name: READ_ONLY
+          value: "true"
+        - name: MAX_CONNECTIONS
+          value: "5"  # Lower for Kubernetes deployment
+        - name: QUERY_TIMEOUT
+          value: "30000"
+        
+        # Health Check Configuration
+        - name: HEALTH_CHECK_ENABLED
+          value: "true"
+        - name: HEALTH_PORT
+          value: "3401"
+        
+        # Logging
+        - name: LOG_LEVEL
+          value: "info"
+        
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: config
+          mountPath: /app/.env
+          subPath: postgres-mcp.env
+        
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: health-http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: health-http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        
+        startupProbe:
+          httpGet:
+            path: /health
+            port: health-http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 10
+        
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: postgres-mcp-config
+      
+      restartPolicy: Always
+      
+      securityContext:
+        fsGroup: 1001
+        fsGroupChangePolicy: "OnRootMismatch"
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - postgres-mcp-server
+              topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-mcp-server
+  namespace: tas-mcp
+  labels:
+    app: postgres-mcp-server
+    tier: database
+    component: mcp-server
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3401
+    targetPort: 3401
+    protocol: TCP
+    name: health-http
+  selector:
+    app: postgres-mcp-server
+    tier: database
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-mcp-server-nodeport
+  namespace: tas-mcp
+  labels:
+    app: postgres-mcp-server
+    tier: database
+    component: mcp-server
+spec:
+  type: NodePort
+  ports:
+  - port: 3401
+    targetPort: 3401
+    nodePort: 30401
+    protocol: TCP
+    name: health-http
+  selector:
+    app: postgres-mcp-server
+    tier: database
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: postgres-mcp-server-hpa
+  namespace: tas-mcp
+  labels:
+    app: postgres-mcp-server
+    tier: database
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: postgres-mcp-server
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30

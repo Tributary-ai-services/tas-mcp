@@ -24,6 +24,10 @@ profile.cov
 go.work
 go.work.sum
 
+# Example go.mod and go.sum files (generated)
+examples/federation/*/go.mod
+examples/federation/*/go.sum
+
 # env file
 .env
 
