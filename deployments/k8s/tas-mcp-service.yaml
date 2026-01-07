@@ -10,15 +10,15 @@ spec:
   type: ClusterIP
   ports:
   - name: http-api
-    port: 8080
+    port: 8082
     targetPort: http-api
     protocol: TCP
   - name: grpc-api
-    port: 50051
+    port: 50052
     targetPort: grpc-api
     protocol: TCP
   - name: health
-    port: 8082
+    port: 8083
     targetPort: health
     protocol: TCP
   selector:
@@ -37,17 +37,17 @@ spec:
   type: NodePort
   ports:
   - name: http-api
-    port: 8080
+    port: 8082
     targetPort: http-api
     nodePort: 30080
     protocol: TCP
   - name: grpc-api
-    port: 50051
+    port: 50052
     targetPort: grpc-api
     nodePort: 30051
     protocol: TCP
   - name: health
-    port: 8082
+    port: 8083
     targetPort: health
     nodePort: 30082
     protocol: TCP

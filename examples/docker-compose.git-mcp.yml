@@ -5,9 +5,9 @@ services:
   tas-mcp:
     build: .
     ports:
-      - "8080:8080"   # HTTP API
-      - "50051:50051" # gRPC API
-      - "8082:8082"   # Health endpoint
+      - "8082:8082"   # HTTP API
+      - "50052:50052" # gRPC API
+      - "8083:8083"   # Health endpoint
     environment:
       - LOG_LEVEL=info
       - HTTP_PORT=8080

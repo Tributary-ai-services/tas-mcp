@@ -116,7 +116,7 @@ docker:
 
 # Docker run
 docker-run: docker
-	docker run -p 8080:8080 -p 50051:50051 -p 8082:8082 ${DOCKER_IMAGE}:latest
+	docker run -p 8082:8082 -p 50052:50052 -p 8083:8083 ${DOCKER_IMAGE}:latest
 
 # Docker compose up
 docker-compose:

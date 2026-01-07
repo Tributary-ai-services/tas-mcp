@@ -10,7 +10,7 @@ spec:
   type: ClusterIP
   ports:
   - name: http
-    port: 8080
+    port: 8082
     targetPort: http
     protocol: TCP
   selector:
@@ -28,7 +28,7 @@ spec:
   type: ClusterIP
   ports:
   - name: grpc
-    port: 50051
+    port: 50052
     targetPort: grpc
     protocol: TCP
   selector:
@@ -46,7 +46,7 @@ spec:
   type: ClusterIP
   ports:
   - name: health
-    port: 8082
+    port: 8083
     targetPort: health
     protocol: TCP
   selector:

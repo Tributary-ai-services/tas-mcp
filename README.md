@@ -36,7 +36,7 @@ The **TAS MCP Server** is a high-performance, cloud-native event gateway and MCP
 
 ```bash
 # Run with Docker
-docker run -p 8080:8080 -p 50051:50051 ghcr.io/tributary-ai-services/tas-mcp:latest
+docker run -p 8082:8082 -p 50052:50052 -p 8083:8083 ghcr.io/tributary-ai-services/tas-mcp:latest
 
 # Or build locally
 make docker
@@ -72,7 +72,7 @@ make dev
 
 ```bash
 # Ingest a single event
-curl -X POST http://localhost:8080/api/v1/events \
+curl -X POST http://localhost:8082/api/v1/events \
   -H "Content-Type: application/json" \
   -d '{
     "event_id": "evt-123",
@@ -82,7 +82,7 @@ curl -X POST http://localhost:8080/api/v1/events \
   }'
 
 # Batch event ingestion
-curl -X POST http://localhost:8080/api/v1/events/batch \
+curl -X POST http://localhost:8082/api/v1/events/batch \
   -H "Content-Type: application/json" \
   -d '[
     {"event_id": "evt-1", "event_type": "order.created", "source": "order-service", "data": "{}"},
@@ -90,7 +90,7 @@ curl -X POST http://localhost:8080/api/v1/events/batch \
   ]'
 
 # Health check
-curl http://localhost:8082/health
+curl http://localhost:8083/health
 ```
 
 ### gRPC API
@@ -102,7 +102,7 @@ import (
     "google.golang.org/grpc"
 )
 
-conn, _ := grpc.Dial("localhost:50051", grpc.WithInsecure())
+conn, _ := grpc.Dial("localhost:50052", grpc.WithInsecure())
 client := mcpv1.NewMCPServiceClient(conn)
 
 // Ingest event
@@ -123,9 +123,9 @@ stream, _ := client.EventStream(ctx)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HTTP_PORT` | `8080` | HTTP API server port |
-| `GRPC_PORT` | `50051` | gRPC server port |
-| `HEALTH_CHECK_PORT` | `8082` | Health check endpoint port |
+| `HTTP_PORT` | `8082` | HTTP API server port |
+| `GRPC_PORT` | `50052` | gRPC server port |
+| `HEALTH_CHECK_PORT` | `8083` | Health check endpoint port |
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
 | `FORWARDING_ENABLED` | `false` | Enable event forwarding |
 | `FORWARDING_WORKERS` | `5` | Number of forwarding workers |
@@ -135,8 +135,8 @@ stream, _ := client.EventStream(ctx)
 
 ```json
 {
-  "HTTPPort": 8080,
-  "GRPCPort": 50051,
+  "HTTPPort": 8082,
+  "GRPCPort": 50052,
   "LogLevel": "info",
   "forwarding": {
     "enabled": true,

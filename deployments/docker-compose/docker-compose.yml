@@ -14,9 +14,9 @@ services:
     container_name: tas-mcp-federation-server-v${TAS_MCP_VERSION:-1.1.0}
     hostname: tas-mcp-server
     ports:
-      - "8080:8080"   # HTTP API
-      - "50051:50051" # gRPC API
-      - "8082:8082"   # Health endpoint
+      - "8082:8082"   # HTTP API
+      - "50052:50052" # gRPC API
+      - "8083:8083"   # Health endpoint
     environment:
       TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
       GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
