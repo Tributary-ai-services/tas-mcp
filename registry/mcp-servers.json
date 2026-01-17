@@ -1,7 +1,7 @@
 {
   "$schema": "./schema.json",
   "version": "1.0.0",
-  "lastUpdated": "2024-07-31T18:00:00Z",
+  "lastUpdated": "2026-01-16T00:00:00Z",
   "servers": [
     {
       "id": "tas-mcp",
@@ -843,6 +843,111 @@
       "tags": ["nodejs", "apify", "web-scraping", "automation", "data-extraction", "federation"],
       "created": "2025-08-04T00:00:00Z",
       "updated": "2025-08-04T00:00:00Z"
+    },
+    {
+      "id": "playwright-mcp-server",
+      "name": "Playwright MCP Server",
+      "description": "Browser automation and web testing server using Playwright for TAS MCP Federation",
+      "version": "1.0.0",
+      "category": "development-tools",
+      "provider": {
+        "name": "TAS MCP Federation",
+        "website": "https://github.com/tributary-ai-services/tas-mcp",
+        "contact": "https://github.com/tributary-ai-services/tas-mcp/issues"
+      },
+      "repository": {
+        "type": "github",
+        "url": "https://github.com/tributary-ai-services/tas-mcp",
+        "branch": "main",
+        "path": "deployments/docker-compose/playwright-mcp"
+      },
+      "endpoints": {
+        "health": ["http://localhost:3404/health"],
+        "metrics": ["http://localhost:3404/metrics"]
+      },
+      "access": {
+        "type": "free",
+        "authentication": ["none"],
+        "registrationRequired": false
+      },
+      "features": [
+        "Full browser automation with Chromium",
+        "Page navigation and history control",
+        "Screenshot capture (full page and element)",
+        "Form filling and submission",
+        "Element clicking and interaction",
+        "Keyboard and mouse simulation",
+        "JavaScript execution in browser context",
+        "Element text and attribute extraction",
+        "Viewport control and responsive testing",
+        "Wait for elements and page states",
+        "Docker and Kubernetes deployment"
+      ],
+      "protocols": {
+        "mcp": "1.0",
+        "transport": ["stdio", "http"]
+      },
+      "deployment": {
+        "docker": "tas-mcp/playwright-mcp-server:1.0.0",
+        "kubernetes": true,
+        "cloud": ["aws", "gcp", "azure"]
+      },
+      "documentation": {
+        "readme": "https://github.com/tributary-ai-services/tas-mcp/blob/main/deployments/docker-compose/playwright-mcp/README.md",
+        "api": "https://github.com/tributary-ai-services/tas-mcp/blob/main/docs/PLAYWRIGHT_MCP_INTEGRATION.md"
+      },
+      "capabilities": [
+        "navigate",
+        "screenshot",
+        "click",
+        "fill",
+        "type",
+        "select",
+        "hover",
+        "wait_for_selector",
+        "get_text",
+        "get_attribute",
+        "evaluate",
+        "get_page_content",
+        "get_page_info",
+        "go_back",
+        "go_forward",
+        "reload",
+        "set_viewport",
+        "scroll",
+        "press_key",
+        "close_browser"
+      ],
+      "configuration": {
+        "required": {},
+        "optional": {
+          "HEADLESS": "Run browser in headless mode (default: true)",
+          "DEFAULT_TIMEOUT": "Default timeout in milliseconds (default: 30000)",
+          "VIEWPORT_WIDTH": "Default viewport width (default: 1280)",
+          "VIEWPORT_HEIGHT": "Default viewport height (default: 720)",
+          "USER_AGENT": "Custom user agent string",
+          "HEALTH_CHECK_ENABLED": "Enable health check endpoint (default: true)"
+        }
+      },
+      "browserSupport": {
+        "chromium": true,
+        "firefox": false,
+        "webkit": false,
+        "headless": true,
+        "headed": true
+      },
+      "resourceRequirements": {
+        "memory": "2GB recommended",
+        "sharedMemory": "2GB for Chrome stability",
+        "capabilities": ["SYS_ADMIN for Chrome sandbox"]
+      },
+      "status": {
+        "health": "healthy",
+        "lastChecked": "2026-01-16T00:00:00Z"
+      },
+      "tags": ["nodejs", "playwright", "browser-automation", "web-testing", "chromium", "screenshots", "federation"],
+      "created": "2026-01-16T00:00:00Z",
+      "updated": "2026-01-16T00:00:00Z"
     }
   ]
 }
