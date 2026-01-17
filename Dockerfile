@@ -75,9 +75,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Set default environment variables
 ENV LOG_LEVEL=info
-ENV HTTP_PORT=8082
-ENV GRPC_PORT=50052
-ENV HEALTH_CHECK_PORT=8083
+ENV HTTP_PORT=8080
+ENV GRPC_PORT=50051
+ENV HEALTH_CHECK_PORT=8082
 ENV SERVICE_VERSION=${VERSION}
 ENV SERVICE_NAME=tas-mcp-federation-server
 
