@@ -1,0 +1,88 @@
+# Playwright MCP Server Docker Compose Configuration
+# Part of TAS MCP Federation - Browser Automation Integration
+
+version: '3.8'
+
+networks:
+  mcp-network:
+    external: true
+
+volumes:
+  playwright_mcp_logs:
+    driver: local
+  playwright_mcp_screenshots:
+    driver: local
+
+services:
+  # Playwright MCP Server
+  playwright-mcp:
+    build:
+      context: ../../..
+      dockerfile: deployments/docker-compose/playwright-mcp/Dockerfile
+      args:
+        VERSION: ${PLAYWRIGHT_MCP_VERSION:-1.0.0}
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+    image: tas-mcp/playwright-mcp-server:${PLAYWRIGHT_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-playwright-server-v${PLAYWRIGHT_MCP_VERSION:-1.0.0}
+    hostname: playwright-mcp-server
+    restart: unless-stopped
+    environment:
+      # Service Configuration
+      SERVICE_NAME: tas-mcp-playwright-server
+      SERVICE_VERSION: ${PLAYWRIGHT_MCP_VERSION:-1.0.0}
+      PLAYWRIGHT_MCP_VERSION: ${PLAYWRIGHT_MCP_VERSION:-1.0.0}
+
+      # Browser Configuration
+      HEADLESS: ${HEADLESS:-true}
+      DEFAULT_TIMEOUT: ${DEFAULT_TIMEOUT:-30000}
+      VIEWPORT_WIDTH: ${VIEWPORT_WIDTH:-1280}
+      VIEWPORT_HEIGHT: ${VIEWPORT_HEIGHT:-720}
+
+      # User Agent Configuration
+      USER_AGENT: ${USER_AGENT:-Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36}
+
+      # Health Check Configuration
+      HEALTH_CHECK_ENABLED: ${HEALTH_CHECK_ENABLED:-true}
+      HEALTH_PORT: ${HEALTH_PORT:-3404}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+
+      # Playwright Configuration
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+    ports:
+      - "${PLAYWRIGHT_MCP_PORT:-3404}:3404"
+    volumes:
+      - playwright_mcp_logs:/app/logs
+      - playwright_mcp_screenshots:/app/screenshots
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3404/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Playwright requires more memory for browser operations
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    # Security settings - more permissive for browser automation
+    security_opt:
+      - no-new-privileges:true
+    # Chrome/Chromium needs these capabilities for sandboxing
+    cap_add:
+      - SYS_ADMIN
+    shm_size: '2gb'  # Required for Chrome to prevent crashes
+    labels:
+      com.tributary-ai.service: playwright-mcp-server
+      com.tributary-ai.component: browser-automation
+      com.tributary-ai.version: "${PLAYWRIGHT_MCP_VERSION:-1.0.0}"
+      com.tributary-ai.browser: "chromium"
+      com.tributary-ai.automation: "true"

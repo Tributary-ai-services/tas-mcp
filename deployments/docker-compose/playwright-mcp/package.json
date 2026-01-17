@@ -1,0 +1,30 @@
+{
+  "name": "playwright-mcp-server",
+  "version": "1.0.0",
+  "description": "Playwright Model Context Protocol Server for TAS MCP Federation - Browser automation and web testing",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@playwright/mcp": "^0.0.1",
+    "playwright": "1.40.0",
+    "dotenv": "^16.3.1",
+    "yargs": "^17.7.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "playwright",
+    "browser-automation",
+    "web-testing",
+    "ai",
+    "federation"
+  ]
+}

@@ -6,25 +6,28 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/tributary-ai-services/tas-mcp.svg)](https://pkg.go.dev/github.com/tributary-ai-services/tas-mcp)
 [![License](https://img.shields.io/github/license/tributary-ai-services/tas-mcp.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/tributary-ai-services/tas-mcp.svg)](https://github.com/tributary-ai-services/tas-mcp/releases)
-[![Join Slack](https://img.shields.io/badge/chat-on%20Slack-blue?logo=slack)](https://join.slack.com/t/tributaryaiservcies/shared_invite/zt-3alfz1o77-kwk3mL~1oBdMAEEY9VEVSw)
 
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)](https://www.docker.com)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5?style=flat&logo=kubernetes)](https://kubernetes.io)
 [![MCP Federation](https://img.shields.io/badge/MCP-Federation%20Ready-FF6B6B?style=flat&logo=network-wired)](https://github.com/tributary-ai-services/tas-mcp)
 
-The **TAS MCP Server** is a high-performance, cloud-native event gateway and ingestion service that implements the [Model Context Protocol](https://github.com/anthropics/model-context-protocol) to support RAG pipelines, event-driven architectures, and workflow orchestration across distributed AI systems.
+The **TAS MCP Server** is a high-performance, cloud-native event gateway and MCP federation platform that implements the [Model Context Protocol](https://github.com/anthropics/model-context-protocol) to support RAG pipelines, event-driven architectures, and workflow orchestration across distributed AI systems. It provides seamless integration with **4 federated MCP servers** including search, web scraping, database access, and development tools.
 
 ## 🌟 Key Features
 
+- **🔗 MCP Federation**: Unified access to 4+ MCP servers (search, web scraping, database, git)
 - **🚀 Multi-Protocol Support**: HTTP REST API and bidirectional gRPC streaming
 - **🔄 Smart Event Forwarding**: Rule-based routing with condition evaluation
-- **🎯 Event Transformation**: Template-based and programmatic event transformation
+- **🔍 Privacy-Focused Search**: DuckDuckGo integration with zero tracking
+- **🕷️ Web Scraping**: Apify platform access to 5,000+ scraping actors
+- **🗃️ Database Access**: PostgreSQL MCP with security-first design
+- **🛠️ Development Tools**: Git repository automation and management
 - **🔌 Integration Ready**: Native support for Argo Events, Kafka, webhooks, and more
-- **📚 MCP Server Registry**: Comprehensive catalog of MCP servers and capabilities
+- **📚 MCP Server Registry**: Comprehensive catalog of 1,535+ MCP servers
 - **📊 Observability**: Built-in metrics, health checks, and distributed tracing support
 - **🔒 Production Ready**: Rate limiting, circuit breakers, and retry logic
-- **☁️ Cloud Native**: Kubernetes-native with Helm charts and operators
+- **☁️ Cloud Native**: Kubernetes-native with full deployment automation
 - **🎨 Extensible**: Plugin architecture for custom forwarders and processors
 
 ## 🚀 Quick Start
@@ -33,7 +36,7 @@ The **TAS MCP Server** is a high-performance, cloud-native event gateway and ing
 
 ```bash
 # Run with Docker
-docker run -p 8080:8080 -p 50051:50051 ghcr.io/tributary-ai-services/tas-mcp:latest
+docker run -p 8082:8082 -p 50052:50052 -p 8083:8083 ghcr.io/tributary-ai-services/tas-mcp:latest
 
 # Or build locally
 make docker
@@ -69,7 +72,7 @@ make dev
 
 ```bash
 # Ingest a single event
-curl -X POST http://localhost:8080/api/v1/events \
+curl -X POST http://localhost:8082/api/v1/events \
   -H "Content-Type: application/json" \
   -d '{
     "event_id": "evt-123",
@@ -79,7 +82,7 @@ curl -X POST http://localhost:8080/api/v1/events \
   }'
 
 # Batch event ingestion
-curl -X POST http://localhost:8080/api/v1/events/batch \
+curl -X POST http://localhost:8082/api/v1/events/batch \
   -H "Content-Type: application/json" \
   -d '[
     {"event_id": "evt-1", "event_type": "order.created", "source": "order-service", "data": "{}"},
@@ -87,7 +90,7 @@ curl -X POST http://localhost:8080/api/v1/events/batch \
   ]'
 
 # Health check
-curl http://localhost:8082/health
+curl http://localhost:8083/health
 ```
 
 ### gRPC API
@@ -99,7 +102,7 @@ import (
     "google.golang.org/grpc"
 )
 
-conn, _ := grpc.Dial("localhost:50051", grpc.WithInsecure())
+conn, _ := grpc.Dial("localhost:50052", grpc.WithInsecure())
 client := mcpv1.NewMCPServiceClient(conn)
 
 // Ingest event
@@ -120,9 +123,9 @@ stream, _ := client.EventStream(ctx)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HTTP_PORT` | `8080` | HTTP API server port |
-| `GRPC_PORT` | `50051` | gRPC server port |
-| `HEALTH_CHECK_PORT` | `8082` | Health check endpoint port |
+| `HTTP_PORT` | `8082` | HTTP API server port |
+| `GRPC_PORT` | `50052` | gRPC server port |
+| `HEALTH_CHECK_PORT` | `8083` | Health check endpoint port |
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
 | `FORWARDING_ENABLED` | `false` | Enable event forwarding |
 | `FORWARDING_WORKERS` | `5` | Number of forwarding workers |
@@ -132,8 +135,8 @@ stream, _ := client.EventStream(ctx)
 
 ```json
 {
-  "HTTPPort": 8080,
-  "GRPCPort": 50051,
+  "HTTPPort": 8082,
+  "GRPCPort": 50052,
   "LogLevel": "info",
   "forwarding": {
     "enabled": true,

@@ -67,7 +67,7 @@ RUN adduser -D -s /bin/sh appuser
 USER appuser
 
 # Expose ports
-EXPOSE 8080 50051 8082
+EXPOSE 8082 50052 8083
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

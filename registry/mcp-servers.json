@@ -1,7 +1,7 @@
 {
   "$schema": "./schema.json",
   "version": "1.0.0",
-  "lastUpdated": "2024-07-31T18:00:00Z",
+  "lastUpdated": "2026-01-16T00:00:00Z",
   "servers": [
     {
       "id": "tas-mcp",

@@ -13,11 +13,11 @@ import (
 // Default configuration constants
 const (
 	// DefaultHTTPPort is the default HTTP server port
-	DefaultHTTPPort = 8080
+	DefaultHTTPPort = 8082
 	// DefaultGRPCPort is the default gRPC server port
-	DefaultGRPCPort = 50051
+	DefaultGRPCPort = 50052
 	// DefaultHealthCheckPort is the default health check port
-	DefaultHealthCheckPort = 8082
+	DefaultHealthCheckPort = 8083
 	// DefaultForwardTimeout is the default timeout for forwarding requests
 	DefaultForwardTimeout = 30 * time.Second
 	// DefaultMaxEventSize is the default maximum event size (1MB)

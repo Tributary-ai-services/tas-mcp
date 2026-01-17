@@ -41,18 +41,18 @@ The TAS MCP Server uses a multi-stage Docker build:
 
 ### Exposed Ports
 
-- `8080`: HTTP API server
-- `50051`: gRPC server  
-- `8082`: Health check endpoint
+- `8082`: HTTP API server
+- `50052`: gRPC server  
+- `8083`: Health check endpoint
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
-| `HTTP_PORT` | `8080` | HTTP server port |
-| `GRPC_PORT` | `50051` | gRPC server port |
-| `HEALTH_CHECK_PORT` | `8082` | Health check port |
+| `HTTP_PORT` | `8082` | HTTP server port |
+| `GRPC_PORT` | `50052` | gRPC server port |
+| `HEALTH_CHECK_PORT` | `8083` | Health check port |
 | `FORWARDING_ENABLED` | `false` | Enable event forwarding |
 | `FORWARDING_WORKERS` | `5` | Number of forwarding workers |
 | `FORWARDING_BUFFER_SIZE` | `1000` | Event buffer size |
