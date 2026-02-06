@@ -40,6 +40,12 @@ services:
       file: apify-mcp/docker-compose.yml
       service: apify-mcp
 
+  # Napkin AI MCP Server - Visual generation from text
+  napkin-mcp:
+    extends:
+      file: napkin-mcp/docker-compose.yml
+      service: napkin-mcp
+
   # PostgreSQL Database
   postgres-db:
     image: postgres:16-alpine
@@ -142,18 +148,22 @@ services:
         condition: service_healthy
       apify-mcp:
         condition: service_healthy
+      napkin-mcp:
+        condition: service_healthy
     environment:
       TAS_MCP_VERSION: ${TAS_MCP_VERSION:-1.1.0}
       GIT_MCP_VERSION: ${GIT_MCP_VERSION:-1.0.0}
       POSTGRES_MCP_VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
       DUCKDUCKGO_MCP_VERSION: ${DUCKDUCKGO_MCP_VERSION:-1.0.0}
       APIFY_MCP_VERSION: ${APIFY_MCP_VERSION:-1.0.0}
+      NAPKIN_MCP_VERSION: ${NAPKIN_MCP_VERSION:-1.0.0}
       SERVICE_NAME: tas-mcp-federation-init
       TAS_MCP_ENDPOINT: http://tas-mcp-server:8080
       GIT_MCP_ENDPOINT: http://git-mcp-server:3000
       POSTGRES_MCP_ENDPOINT: http://postgres-mcp-server:3401
       DUCKDUCKGO_MCP_ENDPOINT: http://duckduckgo-mcp-server:3402
       APIFY_MCP_ENDPOINT: http://apify-mcp-server:3403
+      NAPKIN_MCP_ENDPOINT: http://napkin-mcp-server:8087
     volumes:
       - ../federation:/scripts:ro
     command: |
@@ -271,7 +281,35 @@ services:
                  \"path\": \"/health\"
                }
              }' || echo '⚠️ Apify MCP registration may have failed - server might already be registered'
-        
+
+        echo '🎨 Registering Napkin AI MCP server with TAS MCP federation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers \\
+             -H 'Content-Type: application/json' \\
+             -d '{
+               \"id\": \"napkin-mcp-server-v'$${NAPKIN_MCP_VERSION}'\",
+               \"name\": \"Napkin AI MCP Server v'$${NAPKIN_MCP_VERSION}'\",
+               \"description\": \"Visual generation from text using Napkin AI with MinIO storage\",
+               \"version\": \"'$${NAPKIN_MCP_VERSION}'\",
+               \"category\": \"visual-generation\",
+               \"endpoint\": \"'$${NAPKIN_MCP_ENDPOINT}'\",
+               \"protocol\": \"http\",
+               \"auth\": {
+                 \"type\": \"none\",
+                 \"config\": {}
+               },
+               \"capabilities\": [
+                 \"generate_visual\", \"check_visual_status\", \"download_visual\",
+                 \"list_styles\", \"list_visuals\", \"create_napkin_visual_cr\"
+               ],
+               \"tags\": [\"nodejs\", \"napkin-ai\", \"visual-generation\", \"svg\", \"png\", \"minio\", \"federation\", \"v'$${NAPKIN_MCP_VERSION}'\"],
+               \"health_check\": {
+                 \"enabled\": true,
+                 \"interval\": \"30s\",
+                 \"timeout\": \"10s\",
+                 \"path\": \"/health\"
+               }
+             }' || echo '⚠️ Napkin MCP registration may have failed - server might already be registered'
+
         echo '✅ Federation initialization completed'
         
         echo '📋 Listing registered servers:'
@@ -288,6 +326,9 @@ services:
         
         echo '🏥 Checking Apify MCP server health:'
         curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/apify-mcp-server-v$${APIFY_MCP_VERSION}/health || echo 'Apify MCP health check endpoint may not be implemented'
+
+        echo '🏥 Checking Napkin AI MCP server health:'
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/napkin-mcp-server-v$${NAPKIN_MCP_VERSION}/health || echo 'Napkin MCP health check endpoint may not be implemented'
       "
     restart: "no"
     labels:
@@ -311,6 +352,7 @@ services:
       POSTGRES_MCP_VERSION: ${POSTGRES_MCP_VERSION:-1.0.0}
       DUCKDUCKGO_MCP_VERSION: ${DUCKDUCKGO_MCP_VERSION:-1.0.0}
       APIFY_MCP_VERSION: ${APIFY_MCP_VERSION:-1.0.0}
+      NAPKIN_MCP_VERSION: ${NAPKIN_MCP_VERSION:-1.0.0}
       SERVICE_NAME: tas-mcp-test-client
       TAS_MCP_ENDPOINT: http://tas-mcp-server:8080
       TAS_MCP_HEALTH: http://tas-mcp-server:8082
@@ -322,6 +364,8 @@ services:
       DUCKDUCKGO_MCP_HEALTH: http://duckduckgo-mcp-server:3402
       APIFY_MCP_ENDPOINT: http://apify-mcp-server:3403
       APIFY_MCP_HEALTH: http://apify-mcp-server:3403
+      NAPKIN_MCP_ENDPOINT: http://napkin-mcp-server:8087
+      NAPKIN_MCP_HEALTH: http://napkin-mcp-server:8087
     volumes:
       - ../test:/tests:ro
     command: |
@@ -345,13 +389,17 @@ services:
         
         echo '5️⃣ Testing Apify MCP health...'
         curl -f $${APIFY_MCP_HEALTH}/health && echo '✅ Apify MCP v$${APIFY_MCP_VERSION} is healthy' || echo '❌ Apify MCP health check failed'
-        
+
+        echo '5.5️⃣ Testing Napkin AI MCP health...'
+        curl -f $${NAPKIN_MCP_HEALTH}/health && echo '✅ Napkin MCP v$${NAPKIN_MCP_VERSION} is healthy' || echo '❌ Napkin MCP health check failed'
+
         echo '6️⃣ Testing federation server list...'
         curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"git-mcp-server-v'$${GIT_MCP_VERSION}'\") | .name' && echo '✅ Git MCP server v$${GIT_MCP_VERSION} found in federation' || echo '❌ Git MCP server not found in federation'
         curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"postgres-mcp-server-v'$${POSTGRES_MCP_VERSION}'\") | .name' && echo '✅ PostgreSQL MCP server v$${POSTGRES_MCP_VERSION} found in federation' || echo '❌ PostgreSQL MCP server not found in federation'
         curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"duckduckgo-mcp-server-v'$${DUCKDUCKGO_MCP_VERSION}'\") | .name' && echo '✅ DuckDuckGo MCP server v$${DUCKDUCKGO_MCP_VERSION} found in federation' || echo '❌ DuckDuckGo MCP server not found in federation'
         curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"apify-mcp-server-v'$${APIFY_MCP_VERSION}'\") | .name' && echo '✅ Apify MCP server v$${APIFY_MCP_VERSION} found in federation' || echo '❌ Apify MCP server not found in federation'
-        
+        curl -s $${TAS_MCP_ENDPOINT}/api/v1/federation/servers | jq '.[] | select(.id == \"napkin-mcp-server-v'$${NAPKIN_MCP_VERSION}'\") | .name' && echo '✅ Napkin MCP server v$${NAPKIN_MCP_VERSION} found in federation' || echo '❌ Napkin MCP server not found in federation'
+
         echo '5️⃣ Testing git_status operation...'
         curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/git-mcp-server-v$${GIT_MCP_VERSION}/invoke \
              -H 'Content-Type: application/json' \
@@ -397,13 +445,23 @@ services:
                }
              }' && echo '✅ PostgreSQL table listing completed' || echo '⚠️ PostgreSQL table listing may need different endpoint structure'
         
+        echo '9️⃣ Testing Napkin AI list_styles operation...'
+        curl -X POST $${TAS_MCP_ENDPOINT}/api/v1/federation/servers/napkin-mcp-server-v$${NAPKIN_MCP_VERSION}/invoke \
+             -H 'Content-Type: application/json' \
+             -d '{
+               \"id\": \"test-napkin-list-styles-v'$${NAPKIN_MCP_VERSION}'\",
+               \"method\": \"list_styles\",
+               \"params\": {}
+             }' && echo '✅ Napkin list_styles operation completed' || echo '⚠️ Napkin list_styles may need a valid NAPKIN_API_KEY'
+
         echo '🎯 Full stack integration tests completed!'
-        echo 'Services tested: TAS MCP v$${TAS_MCP_VERSION} + Git MCP v$${GIT_MCP_VERSION} + PostgreSQL MCP v$${POSTGRES_MCP_VERSION}'
+        echo 'Services tested: TAS MCP v$${TAS_MCP_VERSION} + Git MCP v$${GIT_MCP_VERSION} + PostgreSQL MCP v$${POSTGRES_MCP_VERSION} + Napkin MCP v$${NAPKIN_MCP_VERSION}'
         echo 'Access points:'
         echo '  - TAS MCP API: http://localhost:8080'
         echo '  - TAS MCP Health: http://localhost:8082/health'
         echo '  - Git MCP API: http://localhost:3000'
         echo '  - Git MCP Health: http://localhost:3001/health'
+        echo '  - Napkin MCP Health: http://localhost:8087/health'
         echo '  - Federation API: http://localhost:8080/api/v1/federation'
       "
     restart: "no"
