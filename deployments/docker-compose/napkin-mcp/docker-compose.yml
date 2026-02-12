@@ -1,0 +1,57 @@
+# Napkin AI MCP Server Docker Compose Configuration
+# Part of TAS MCP Federation - Visual Generation from Text
+
+version: '3.8'
+
+networks:
+  mcp-network:
+    external: true
+
+services:
+  # Napkin AI MCP Server - Visual generation from text
+  napkin-mcp:
+    build:
+      context: ../../../../tas-mcp-servers/servers/napkin-mcp
+      dockerfile: Dockerfile
+    image: tas-mcp/napkin-mcp-server:${NAPKIN_MCP_VERSION:-1.0.0}
+    container_name: tas-mcp-napkin-server-v${NAPKIN_MCP_VERSION:-1.0.0}
+    hostname: napkin-mcp-server
+    restart: unless-stopped
+    environment:
+      # Service Configuration
+      SERVICE_NAME: tas-mcp-napkin-server
+      SERVICE_VERSION: ${NAPKIN_MCP_VERSION:-1.0.0}
+      NAPKIN_MCP_VERSION: ${NAPKIN_MCP_VERSION:-1.0.0}
+
+      # Napkin AI Configuration
+      NAPKIN_API_KEY: ${NAPKIN_API_KEY:-}
+      NAPKIN_API_BASE_URL: ${NAPKIN_API_BASE_URL:-https://api.napkin.ai}
+      NAPKIN_POLLING_INTERVAL: ${NAPKIN_POLLING_INTERVAL:-3000}
+      NAPKIN_MAX_WAIT_TIME: ${NAPKIN_MAX_WAIT_TIME:-300000}
+
+      # MinIO Configuration
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://tas-minio-shared:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin123}
+      MINIO_BUCKET: ${MINIO_BUCKET:-napkin-visuals}
+
+      # Health Check Configuration
+      HEALTH_PORT: "8087"
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      NODE_ENV: production
+    ports:
+      - "${NAPKIN_MCP_PORT:-8087}:8087"
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8087/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      com.tributary-ai.service: napkin-mcp-server
+      com.tributary-ai.component: visual-generation-server
+      com.tributary-ai.version: "${NAPKIN_MCP_VERSION:-1.0.0}"
