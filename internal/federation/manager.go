@@ -35,6 +35,12 @@ type Manager struct {
 
 	// Metrics
 	metrics *Metrics
+
+	// resultProcessor reduces + compliance-scans tool-call results at the
+	// source, once, before the agent caches them (cache-safe reduce-at-source,
+	// AIQG_CACHE_SAFE_REDUCTION.md §9.A). Never nil after NewManager — defaults
+	// to a no-op; SetResultProcessor installs a Gatekeeper-backed one.
+	resultProcessor ResultProcessor
 }
 
 // Metrics tracks federation manager statistics
@@ -53,14 +59,28 @@ type Metrics struct {
 // NewManager creates a new federation manager
 func NewManager(logger *zap.Logger, discovery ServiceDiscovery, bridge ProtocolBridge) *Manager {
 	return &Manager{
-		logger:         logger,
-		servers:        make(map[string]*MCPServer),
-		services:       make(map[string]MCPService),
-		discovery:      discovery,
-		bridge:         bridge,
-		healthInterval: DefaultHealthInterval,
-		metrics:        &Metrics{},
+		logger:          logger,
+		servers:         make(map[string]*MCPServer),
+		services:        make(map[string]MCPService),
+		discovery:       discovery,
+		bridge:          bridge,
+		healthInterval:  DefaultHealthInterval,
+		metrics:         &Metrics{},
+		resultProcessor: noopResultProcessor{},
 	}
+}
+
+// SetResultProcessor installs the cache-safe reduce/scan processor for tool
+// results (AIQG_CACHE_SAFE_REDUCTION.md §9.A). A nil argument resets to the
+// no-op (reduction off). Safe to call at runtime; the hot path reads it under
+// the manager lock.
+func (m *Manager) SetResultProcessor(p ResultProcessor) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p == nil {
+		p = noopResultProcessor{}
+	}
+	m.resultProcessor = p
 }
 
 // NewManagerWithDefaults creates a new federation manager with default implementations
@@ -256,6 +276,18 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 	}
 
 	m.updateSuccessMetrics()
+
+	// Cache-safe reduce-at-source (AIQG_CACHE_SAFE_REDUCTION.md §9.A): reduce +
+	// compliance-scan the tool result ONCE, here at production, before the agent
+	// caches it. No-op by default; fail-open (the processor returns the original
+	// response on any error). Only tools/call responses are transformed — the
+	// processor decides based on request.Method.
+	m.mu.RLock()
+	rp := m.resultProcessor
+	m.mu.RUnlock()
+	if rp != nil && response != nil {
+		response = rp.ProcessResult(ctx, request.Method, response)
+	}
 	return response, nil
 }
 
