@@ -32,6 +32,9 @@ const (
 	DefaultForwardingWorkers = 5
 	// DefaultFilePermissions is the default file permissions for config files
 	DefaultFilePermissions = 0600
+	// DefaultReductionOllamaURL is the default embedder/SLM endpoint for
+	// reduce-at-source (the relevance step always runs on Ollama).
+	DefaultReductionOllamaURL = "http://ollama:11434"
 )
 
 // Config holds all configuration for the TAS MCP server
@@ -47,6 +50,36 @@ type Config struct {
 	MaxConnections  int
 	Version         string
 	Forwarding      *ForwardingConfig `json:"forwarding,omitempty"`
+	Reduction       *ReductionConfig  `json:"reduction,omitempty"`
+}
+
+// ReductionConfig configures cache-safe reduce-at-source for federated tool
+// results. It is a plain description of the knobs — the federation layer maps it
+// to the Gatekeeper-backed reducer at wiring time (see internal/reduction), so
+// this package stays free of the extractor dependency. Nil (the default) means
+// reduction is off and tool results pass through untouched.
+type ReductionConfig struct {
+	Enabled bool `json:"enabled"`
+
+	// EmbedModel / OllamaURL configure the relevance step's embedder.
+	EmbedModel string `json:"embed_model,omitempty"`
+	OllamaURL  string `json:"ollama_url,omitempty"`
+
+	// MinContentSize is the byte threshold below which a tool result is left
+	// alone (0 = extractor default). Small results aren't worth reducing.
+	MinContentSize int `json:"min_content_size,omitempty"`
+
+	// SLM* configure the optional summarization step. Off → relevance-only.
+	SLMEnabled   bool   `json:"slm_enabled"`
+	SLMProvider  string `json:"slm_provider,omitempty"` // ollama | openai | anthropic
+	SLMBaseURL   string `json:"slm_base_url,omitempty"`
+	SLMModel     string `json:"slm_model,omitempty"`
+	SLMAPIKey    string `json:"slm_api_key,omitempty"`
+	SLMMaxTokens int    `json:"slm_max_tokens,omitempty"`
+
+	// MaxOutputBytes caps the reduced size of a single tool-result block
+	// (0 = extractor default).
+	MaxOutputBytes int `json:"max_output_bytes,omitempty"`
 }
 
 // ForwardingConfig holds event forwarding configuration
@@ -164,6 +197,11 @@ func Load() *Config {
 		config.Forwarding = loadForwardingConfig()
 	}
 
+	// Load reduce-at-source configuration if enabled
+	if getEnvAsBool("REDUCTION_ENABLED", false) {
+		config.Reduction = loadReductionConfig()
+	}
+
 	return config
 }
 
@@ -209,6 +247,23 @@ func loadForwardingConfig() *ForwardingConfig {
 		BufferSize:           getEnvAsInt("FORWARDING_BUFFER_SIZE", DefaultBufferSize),
 		Workers:              getEnvAsInt("FORWARDING_WORKERS", DefaultForwardingWorkers),
 		Targets:              loadTargetsFromEnv(),
+	}
+}
+
+// loadReductionConfig loads reduce-at-source configuration from environment
+func loadReductionConfig() *ReductionConfig {
+	return &ReductionConfig{
+		Enabled:        true,
+		EmbedModel:     getEnv("REDUCTION_EMBED_MODEL", ""),
+		OllamaURL:      getEnv("REDUCTION_OLLAMA_URL", DefaultReductionOllamaURL),
+		MinContentSize: getEnvAsInt("REDUCTION_MIN_CONTENT_SIZE", 0),
+		SLMEnabled:     getEnvAsBool("REDUCTION_SLM_ENABLED", false),
+		SLMProvider:    getEnv("REDUCTION_SLM_PROVIDER", ""),
+		SLMBaseURL:     getEnv("REDUCTION_SLM_BASE_URL", ""),
+		SLMModel:       getEnv("REDUCTION_SLM_MODEL", ""),
+		SLMAPIKey:      getEnv("REDUCTION_SLM_API_KEY", ""),
+		SLMMaxTokens:   getEnvAsInt("REDUCTION_SLM_MAX_TOKENS", 0),
+		MaxOutputBytes: getEnvAsInt("REDUCTION_MAX_OUTPUT_BYTES", 0),
 	}
 }
 
