@@ -17,9 +17,9 @@ func TestLoad(t *testing.T) {
 			name:    "default values",
 			envVars: map[string]string{},
 			expected: &Config{
-				HTTPPort:        8080,
-				GRPCPort:        50051,
-				HealthCheckPort: 8082,
+				HTTPPort:        DefaultHTTPPort,
+				GRPCPort:        DefaultGRPCPort,
+				HealthCheckPort: DefaultHealthCheckPort,
 				LogLevel:        "info",
 				ForwardTo:       []string{},
 				ForwardTimeout:  30 * time.Second,
@@ -42,7 +42,7 @@ func TestLoad(t *testing.T) {
 			expected: &Config{
 				HTTPPort:        9090,
 				GRPCPort:        9091,
-				HealthCheckPort: 8082,
+				HealthCheckPort: DefaultHealthCheckPort, // not overridden by env
 				LogLevel:        "debug",
 				ForwardTo:       []string{},
 				ForwardTimeout:  30 * time.Second,
@@ -60,9 +60,9 @@ func TestLoad(t *testing.T) {
 				"FORWARDING_WORKERS": "10",
 			},
 			expected: &Config{
-				HTTPPort:        8080,
-				GRPCPort:        50051,
-				HealthCheckPort: 8082,
+				HTTPPort:        DefaultHTTPPort,
+				GRPCPort:        DefaultGRPCPort,
+				HealthCheckPort: DefaultHealthCheckPort,
 				LogLevel:        "info",
 				ForwardTo:       []string{},
 				ForwardTimeout:  30 * time.Second,
