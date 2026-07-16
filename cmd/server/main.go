@@ -21,10 +21,12 @@ import (
 
 	mcpv1 "github.com/tributary-ai-services/tas-mcp/gen/mcp/v1"
 	"github.com/tributary-ai-services/tas-mcp/internal/config"
+	"github.com/tributary-ai-services/tas-mcp/internal/federation"
 	"github.com/tributary-ai-services/tas-mcp/internal/forwarding"
 	grpcserver "github.com/tributary-ai-services/tas-mcp/internal/grpc"
 	httpserver "github.com/tributary-ai-services/tas-mcp/internal/http"
 	"github.com/tributary-ai-services/tas-mcp/internal/logger"
+	"github.com/tributary-ai-services/tas-mcp/internal/reduction"
 )
 
 // Server configuration constants
@@ -58,11 +60,40 @@ func main() {
 		defer forwarder.Stop()
 	}
 
+	federationManager, reducer := setupFederation(cfg, zapLogger)
+	if reducer != nil {
+		defer func() { _ = reducer.Close() }()
+	}
+
 	grpcServer, mcpServer := setupGRPCServer(cfg, zapLogger, forwarder)
-	httpServerInstance := setupHTTPServer(cfg, zapLogger, mcpServer, forwarder)
+	httpServerInstance := setupHTTPServer(cfg, zapLogger, mcpServer, forwarder, federationManager)
 	healthHTTPServer := setupHealthServer(cfg, zapLogger, mcpServer, forwarder)
 
 	waitForShutdown(zapLogger, httpServerInstance, healthHTTPServer, grpcServer)
+}
+
+// setupFederation constructs the federation Manager that this process hosts as
+// the MCP gateway, and turns on cache-safe reduce-at-source for federated tool
+// results. The Manager is built once and owned by main so its server registry
+// can be populated and mutated at runtime — the planned FederatedMCPServer CRD
+// controller registers/unregisters downstream servers by calling
+// mgr.RegisterServer / mgr.UnregisterServer on this same instance. The registry
+// starts empty; federation routes (/api/v1/federation/*) are live immediately
+// and return the current (initially empty) set.
+//
+// reduce-at-source is installed on the concrete *Manager before it is handed to
+// the HTTP server as a federation.TASManager (SetResultProcessor lives on the
+// concrete type). It no-ops unless REDUCTION_ENABLED. Returns the *Reducer (nil
+// when disabled) so main can Close it on shutdown.
+func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Manager, *reduction.Reducer) {
+	mgr := federation.NewManagerWithDefaults(zapLogger)
+
+	reducer := reduction.Install(mgr, reduction.FromConfig(cfg.Reduction), zapLogger)
+
+	zapLogger.Info("Federation gateway enabled",
+		zap.Bool("reduce_at_source", reducer != nil))
+
+	return mgr, reducer
 }
 
 func initializeApp() (*config.Config, *zap.Logger) {
@@ -160,9 +191,11 @@ func setupHTTPServer(
 	zapLogger *zap.Logger,
 	mcpServer *grpcserver.MCPServer,
 	forwarder *forwarding.EventForwarder,
+	federationManager federation.TASManager,
 ) *http.Server {
-	// Create HTTP server
-	httpSrv := httpserver.NewServer(zapLogger, mcpServer, forwarder)
+	// Create HTTP server with the federation gateway wired in, so tool-call
+	// requests reach Manager.InvokeServer (the reduce-at-source choke point).
+	httpSrv := httpserver.NewServerWithFederation(zapLogger, mcpServer, forwarder, federationManager)
 	httpServerInstance := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:      httpSrv.Handler(),
