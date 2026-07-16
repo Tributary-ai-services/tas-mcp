@@ -89,7 +89,7 @@ func TestReducingProcessor_OnlyToolsCall(t *testing.T) {
 	p := NewReducingResultProcessor(r)
 	resp := &MCPResponse{ID: "1", Result: contentResult(strings.Repeat("x", 100))}
 
-	out := p.ProcessResult(context.Background(), &MCPRequest{Method: "tools/list"}, resp)
+	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsList}, resp)
 	if r.calls.Load() != 0 {
 		t.Error("reducer was called for a non-tools/call method")
 	}
@@ -249,7 +249,7 @@ func TestReducingProcessor_WiresIntoManager(t *testing.T) {
 	}
 	manager.SetResultProcessor(NewReducingResultProcessor(&truncReducer{}))
 
-	resp, err := manager.InvokeServer(context.Background(), server.ID, &MCPRequest{ID: "r1", Method: "tools/list"})
+	resp, err := manager.InvokeServer(context.Background(), server.ID, &MCPRequest{ID: "r1", Method: methodToolsList})
 	if err != nil {
 		t.Fatalf("InvokeServer error: %v", err)
 	}
