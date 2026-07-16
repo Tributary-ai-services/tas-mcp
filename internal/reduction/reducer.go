@@ -66,6 +66,11 @@ func New(cfg Config) (*Reducer, error) {
 		return nil, nil
 	}
 
+	// Both reduction modes are now viable: relevance (Extract) runs on the
+	// query the federation layer threads from the tool-call arguments, and
+	// summarization (Summarize) runs when an SLM is configured. Relevance-only
+	// (SLM off) is a valid, GPU-free mode — a call with no usable query simply
+	// isn't reduced, which is acceptable best-effort behavior.
 	ec := extract.DefaultExtractorConfig()
 	ec.EnableEmbedding = true
 	if cfg.EmbedModel != "" {

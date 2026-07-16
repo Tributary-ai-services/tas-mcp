@@ -23,7 +23,7 @@ func Install(m *federation.Manager, cfg Config, logger *zap.Logger) *Reducer {
 	r, err := New(cfg)
 	if err != nil {
 		if logger != nil {
-			logger.Warn("reduce-at-source: extractor init failed; reduction disabled",
+			logger.Warn("reduce-at-source: unavailable; reduction disabled",
 				zap.Error(err))
 		}
 		return nil
