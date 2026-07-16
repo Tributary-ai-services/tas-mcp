@@ -331,14 +331,18 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 
 	// Cache-safe reduce-at-source (AIQG_CACHE_SAFE_REDUCTION.md §9.A): reduce +
 	// compliance-scan the tool result ONCE, here at production, before the agent
-	// caches it. No-op by default; fail-open (the processor returns the original
-	// response on any error). Only tools/call responses are transformed — the
-	// processor decides based on request.Method.
-	m.mu.RLock()
-	rp := m.resultProcessor
-	m.mu.RUnlock()
-	if rp != nil && response != nil {
-		response = rp.ProcessResult(ctx, request, response)
+	// caches it. Fail-open (the processor returns the original response on any
+	// error). Gated per-server (server.Reduce, set via the FederatedMCPServer CR)
+	// AND to tools/call, so structured-output servers aren't reduced.
+	if request.Method == methodToolsCall && response != nil {
+		if srv, gerr := m.registry.Get(ctx, serverID); gerr == nil && srv.Reduce {
+			m.mu.RLock()
+			rp := m.resultProcessor
+			m.mu.RUnlock()
+			if rp != nil {
+				response = rp.ProcessResult(ctx, request, response)
+			}
+		}
 	}
 	return response, nil
 }

@@ -19,10 +19,15 @@ type MCPServer struct {
 	Capabilities []string          `json:"capabilities"`
 	Tags         []string          `json:"tags"`
 	Metadata     map[string]string `json:"metadata"`
-	Status       ServerStatus      `json:"status"`
-	HealthCheck  HealthCheckConfig `json:"health_check"`
-	CreatedAt    time.Time         `json:"created_at"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	// Reduce opts this server's tool-call results into cache-safe
+	// reduce-at-source. Off by default — reduction drops less-relevant chunks,
+	// which suits text/RAG-heavy results but can lose data on structured output,
+	// so it's per-server opt-in (set via the FederatedMCPServer CR).
+	Reduce      bool              `json:"reduce,omitempty"`
+	Status      ServerStatus      `json:"status"`
+	HealthCheck HealthCheckConfig `json:"health_check"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }
 
 // Protocol defines the communication protocol for MCP servers

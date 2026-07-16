@@ -143,6 +143,47 @@ func TestInvokeServer_SelfHealsFromRegistry(t *testing.T) {
 	}
 }
 
+// Reduce-at-source is gated per server: the ResultProcessor runs only for a
+// tools/call on a server with Reduce=true.
+func TestInvokeServer_ReduceGatedPerServer(t *testing.T) {
+	ts := newTestMCPServer(t)
+	defer ts.Close()
+
+	manager := createTestManager()
+	fp := &fakeProcessor{}
+	manager.SetResultProcessor(fp)
+	ctx := context.Background()
+
+	call := func(id string, reduce bool) {
+		s := createTestServer()
+		s.ID = id
+		s.Endpoint = ts.URL
+		s.Reduce = reduce
+		if err := manager.registry.Put(ctx, s); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+		_, err := manager.InvokeServer(ctx, id, &MCPRequest{
+			ID: "1", Method: methodToolsCall,
+			Params: map[string]interface{}{"name": "echo", "arguments": map[string]interface{}{}},
+		})
+		if err != nil {
+			t.Fatalf("invoke %s: %v", id, err)
+		}
+	}
+
+	fp.called = false
+	call("no-reduce", false)
+	if fp.called {
+		t.Error("processor must NOT run for a server with Reduce=false")
+	}
+
+	fp.called = false
+	call("do-reduce", true)
+	if !fp.called {
+		t.Error("processor MUST run for a server with Reduce=true")
+	}
+}
+
 // InvokeServer for a truly unknown id (not in the registry) still errors.
 func TestInvokeServer_UnknownStillErrors(t *testing.T) {
 	manager := createTestManager()
