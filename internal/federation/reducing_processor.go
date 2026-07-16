@@ -17,8 +17,11 @@ import (
 const maxReduceCacheEntries = 4096
 
 // methodToolsCall is the MCP method whose results carry reducible external
-// content.
-const methodToolsCall = "tools/call"
+// content. methodToolsList lists a server's tools.
+const (
+	methodToolsCall = "tools/call"
+	methodToolsList = "tools/list"
+)
 
 // Reducer deterministically shrinks a single block of tool-result text — the
 // port the reducing ResultProcessor depends on. The Gatekeeper-backed adapter

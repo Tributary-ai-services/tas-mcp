@@ -1,11 +1,26 @@
 package federation
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"go.uber.org/zap"
+)
+
+const (
+	// mcpToolsListPath / mcpToolsCallPath are the TAS MCP HTTP endpoints every
+	// federated server exposes.
+	mcpToolsListPath = "/mcp/tools/list"
+	mcpToolsCallPath = "/mcp/tools/call"
+	// maxProxyResponseBytes caps a proxied response body (defensive).
+	maxProxyResponseBytes = 8 << 20 // 8 MiB
+	// errBodyPreview bounds how much of an error response body is echoed.
+	errBodyPreview = 256
 )
 
 // GenericService implements MCPService for various protocols
@@ -175,26 +190,75 @@ func NewHTTPClient(server *MCPServer, logger *zap.Logger) (*HTTPClient, error) {
 	}, nil
 }
 
-// Call makes an HTTP call to the MCP server
-func (c *HTTPClient) Call(_ context.Context, method string, _ map[string]interface{}) (interface{}, error) {
-	// This is a simplified implementation
-	// In a real implementation, you would:
-	// 1. Create an HTTP request with the appropriate MCP format
-	// 2. Add authentication headers based on server.Auth
-	// 3. Make the HTTP request
-	// 4. Parse the MCP response
+// Call proxies an MCP method to the downstream server over HTTP, using the TAS
+// MCP convention every server exposes:
+//
+//	tools/list → GET  {endpoint}/mcp/tools/list
+//	tools/call → POST {endpoint}/mcp/tools/call  with the {name, arguments} params
+//
+// It returns the parsed JSON response body so the caller's MCPResponse.Result
+// carries the server's real {content:[…]} payload (which reduce-at-source then
+// operates on). Auth is applied from the server's AuthConfig.
+func (c *HTTPClient) Call(ctx context.Context, method string, params map[string]interface{}) (interface{}, error) {
+	base := strings.TrimRight(c.server.Endpoint, "/")
 
-	c.logger.Debug("Making HTTP call",
+	var (
+		httpMethod string
+		url        string
+		body       io.Reader
+	)
+	switch method {
+	case methodToolsList:
+		httpMethod, url = http.MethodGet, base+mcpToolsListPath
+	case methodToolsCall:
+		payload, err := json.Marshal(params)
+		if err != nil {
+			return nil, fmt.Errorf("marshal tool arguments: %w", err)
+		}
+		httpMethod, url, body = http.MethodPost, base+mcpToolsCallPath, bytes.NewReader(payload)
+	default:
+		return nil, fmt.Errorf("federation HTTP client: unsupported method %q", method)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, httpMethod, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if err := c.authManager.AddAuthentication(req, c.server.ID, c.server.Auth); err != nil {
+		return nil, fmt.Errorf("apply auth for %s: %w", c.server.ID, err)
+	}
+
+	c.logger.Debug("Proxying MCP call",
 		zap.String("server_id", c.server.ID),
 		zap.String("method", method),
-		zap.String("endpoint", c.server.Endpoint))
+		zap.String("url", url))
 
-	// Placeholder implementation
-	return map[string]interface{}{
-		"status": "success",
-		"method": method,
-		"server": c.server.ID,
-	}, nil
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("call %s: %w", c.server.ID, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxProxyResponseBytes))
+	if err != nil {
+		return nil, fmt.Errorf("read %s response: %w", c.server.ID, err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("%s returned %s: %s", c.server.ID, resp.Status,
+			string(data[:min(len(data), errBodyPreview)]))
+	}
+	if len(data) == 0 {
+		return map[string]interface{}{}, nil
+	}
+	var result interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		// Non-JSON body — surface it as text rather than failing the call.
+		return map[string]interface{}{"text": string(data)}, nil
+	}
+	return result, nil
 }
 
 // Health performs an HTTP health check

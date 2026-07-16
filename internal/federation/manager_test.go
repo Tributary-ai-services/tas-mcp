@@ -103,8 +103,12 @@ func createTestManager() *Manager {
 // with no local MCPService — as if another replica registered it — is built
 // lazily and served. This is the multi-replica fix (#19).
 func TestInvokeServer_SelfHealsFromRegistry(t *testing.T) {
+	ts := newTestMCPServer(t)
+	defer ts.Close()
+
 	manager := createTestManager()
 	server := createTestServer()
+	server.Endpoint = ts.URL // real downstream so the proxied call succeeds
 
 	// Put the definition straight into the registry, bypassing RegisterServer so
 	// NO local service is created (simulates a register on another replica).
@@ -119,12 +123,16 @@ func TestInvokeServer_SelfHealsFromRegistry(t *testing.T) {
 	}
 
 	resp, err := manager.InvokeServer(context.Background(), server.ID,
-		&MCPRequest{ID: "1", Method: "tools/list"})
+		&MCPRequest{ID: "1", Method: methodToolsList})
 	if err != nil {
 		t.Fatalf("InvokeServer should self-heal from the registry, got: %v", err)
 	}
-	if resp == nil {
-		t.Fatal("nil response")
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("invoke should proxy successfully, got resp=%+v", resp)
+	}
+	// Real content flowed back through the built service.
+	if m, ok := resp.Result.(map[string]interface{}); !ok || m["tools"] == nil {
+		t.Errorf("expected the downstream tools payload, got: %+v", resp.Result)
 	}
 
 	manager.mu.RLock()
@@ -139,7 +147,7 @@ func TestInvokeServer_SelfHealsFromRegistry(t *testing.T) {
 func TestInvokeServer_UnknownStillErrors(t *testing.T) {
 	manager := createTestManager()
 	if _, err := manager.InvokeServer(context.Background(), "ghost",
-		&MCPRequest{ID: "1", Method: "tools/list"}); err == nil {
+		&MCPRequest{ID: "1", Method: methodToolsList}); err == nil {
 		t.Error("invoking an unregistered server should error")
 	}
 }

@@ -2,10 +2,41 @@ package federation
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"go.uber.org/zap"
 )
+
+// newTestMCPServer starts an httptest server that speaks the TAS MCP HTTP
+// convention (/mcp/tools/list, /mcp/tools/call), so proxy tests are
+// deterministic instead of hitting a real endpoint.
+func newTestMCPServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp/tools/list", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tools":[{"name":"echo"}]}`))
+	})
+	mux.HandleFunc("/mcp/tools/call", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		name, _ := body["name"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"called ` + name + `"}],"isError":false}`))
+	})
+	return httptest.NewServer(mux)
+}
 
 func TestGenericService(t *testing.T) {
 	logger := zap.NewNop()
@@ -134,39 +165,55 @@ func TestHTTPClient(t *testing.T) {
 }
 
 func TestHTTPClientCall(t *testing.T) {
-	logger := zap.NewNop()
-	server := createTestServer()
+	ts := newTestMCPServer(t)
+	defer ts.Close()
 
-	client, err := NewHTTPClient(server, logger)
+	server := createTestServer()
+	server.Endpoint = ts.URL
+	client, err := NewHTTPClient(server, zap.NewNop())
 	if err != nil {
 		t.Fatalf("Failed to create HTTP client: %v", err)
 	}
+	ctx := context.Background()
 
-	// Test call (mock implementation)
-	result, err := client.Call(context.Background(), "test_method", map[string]interface{}{
-		"param1": "value1",
-	})
-
+	// tools/list → GET /mcp/tools/list, returns the server's real payload.
+	res, err := client.Call(ctx, methodToolsList, nil)
 	if err != nil {
-		t.Fatalf("Expected successful call, got error: %v", err)
+		t.Fatalf("tools/list: %v", err)
+	}
+	if m, ok := res.(map[string]interface{}); !ok || m["tools"] == nil {
+		t.Errorf("tools/list result missing tools: %+v", res)
 	}
 
-	if result == nil {
-		t.Fatal("Expected result, got nil")
+	// tools/call → POST /mcp/tools/call with {name, arguments}; returns MCP content.
+	res, err = client.Call(ctx, methodToolsCall, map[string]interface{}{
+		"name": "echo", "arguments": map[string]interface{}{},
+	})
+	if err != nil {
+		t.Fatalf("tools/call: %v", err)
+	}
+	if m, ok := res.(map[string]interface{}); !ok || m["content"] == nil {
+		t.Errorf("tools/call result missing content: %+v", res)
 	}
 
-	// Check result structure (from mock implementation)
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected result to be map")
+	// Unsupported method is rejected (not silently stubbed).
+	if _, err := client.Call(ctx, "bogus/method", nil); err == nil {
+		t.Error("unsupported method should error")
 	}
+}
 
-	if resultMap["status"] != testStatusSuccess {
-		t.Errorf("Expected status 'success', got %v", resultMap["status"])
-	}
+func TestHTTPClientCall_Non2xxErrors(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}))
+	defer ts.Close()
 
-	if resultMap["method"] != "test_method" {
-		t.Errorf("Expected method 'test_method', got %v", resultMap["method"])
+	server := createTestServer()
+	server.Endpoint = ts.URL
+	client, _ := NewHTTPClient(server, zap.NewNop())
+	if _, err := client.Call(context.Background(), methodToolsList, nil); err == nil {
+		t.Error("a non-2xx downstream response should surface as an error")
 	}
 }
 
