@@ -1,8 +1,9 @@
 package reduction
 
 import (
-	"github.com/tributary-ai-services/tas-mcp/internal/federation"
 	"go.uber.org/zap"
+
+	"github.com/tributary-ai-services/tas-mcp/internal/federation"
 )
 
 // Install wires cache-safe reduce-at-source into a federation Manager from cfg.
@@ -15,7 +16,7 @@ import (
 // path — reduce-at-source is an optimization and must never keep the gateway
 // from starting. It returns the *Reducer (nil when disabled or on build
 // failure) so the caller can Close() it during shutdown.
-func Install(m *federation.Manager, cfg Config, logger *zap.Logger) *Reducer {
+func Install(m *federation.Manager, cfg Config, logger *zap.Logger) *Reducer { //nolint:gocritic // startup-only config
 	if m == nil || !cfg.Enabled {
 		return nil
 	}

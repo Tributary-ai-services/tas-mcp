@@ -16,6 +16,10 @@ import (
 // correctness.
 const maxReduceCacheEntries = 4096
 
+// methodToolsCall is the MCP method whose results carry reducible external
+// content.
+const methodToolsCall = "tools/call"
+
 // Reducer deterministically shrinks a single block of tool-result text — the
 // port the reducing ResultProcessor depends on. The Gatekeeper-backed adapter
 // (extract.Extractor) is wired in behind this interface (Slice 2b), which keeps
@@ -71,7 +75,7 @@ func (p *reducingResultProcessor) ProcessResult(ctx context.Context, req *MCPReq
 		return resp
 	}
 	// Only tools/call responses carry reducible external content.
-	if req == nil || req.Method != "tools/call" {
+	if req == nil || req.Method != methodToolsCall {
 		return resp
 	}
 
@@ -140,11 +144,11 @@ type reduceLRU struct {
 
 type reduceEntry struct{ key, val string }
 
-func newReduceLRU(max int) *reduceLRU {
-	if max <= 0 {
-		max = maxReduceCacheEntries
+func newReduceLRU(capacity int) *reduceLRU {
+	if capacity <= 0 {
+		capacity = maxReduceCacheEntries
 	}
-	return &reduceLRU{max: max, ll: list.New(), m: make(map[string]*list.Element, max)}
+	return &reduceLRU{max: capacity, ll: list.New(), m: make(map[string]*list.Element, capacity)}
 }
 
 func (c *reduceLRU) get(key string) (string, bool) {

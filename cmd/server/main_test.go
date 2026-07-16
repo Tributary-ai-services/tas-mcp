@@ -3,8 +3,9 @@ package main
 import (
 	"testing"
 
-	"github.com/tributary-ai-services/tas-mcp/internal/config"
 	"go.uber.org/zap"
+
+	"github.com/tributary-ai-services/tas-mcp/internal/config"
 )
 
 // The gateway always hosts a federation Manager (so the FederatedMCPServer CRD
