@@ -1,6 +1,14 @@
 # Multi-stage Dockerfile for TAS MCP Server with BuildKit optimizations
+#
+# NOTE: build context is the TAS monorepo ROOT (not tas-mcp/), because tas-mcp's
+# go.mod uses `replace github.com/Tributary-ai-services/Gatekeeper => ../Gatekeeper`
+# for the reduce-at-source extractor. Build with:
+#   docker build -f tas-mcp/Dockerfile -t <img> .        # from the TAS root
+# Only Gatekeeper's pure-Go pkg/extract is imported (no Hyperscan/CGO), so no
+# extra system deps or build tags are needed.
+#
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Build arguments
 ARG VERSION=1.1.0
@@ -10,17 +18,22 @@ ARG VCS_REF
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
 
-# Set the working directory
-WORKDIR /app
+# Copy the local-replace dependency (Gatekeeper) as a sibling of the app dir so
+# the `../Gatekeeper` replace resolves inside the container.
+WORKDIR /build
+COPY Gatekeeper/ /build/Gatekeeper/
+
+# App module
+WORKDIR /build/app
 
 # Copy go mod files for better layer caching
-COPY go.mod go.sum ./
+COPY tas-mcp/go.mod tas-mcp/go.sum ./
 
 # Download dependencies (cached unless go.mod/go.sum change)
 RUN go mod download
 
 # Copy source code
-COPY . .
+COPY tas-mcp/ .
 
 # Build the application with version info
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
@@ -53,13 +66,13 @@ LABEL com.tributary-ai.component="federation-server"
 RUN apk add --no-cache ca-certificates tzdata wget curl
 
 # Copy the binary
-COPY --from=builder /app/bin/tas-mcp-server /tas-mcp-server
+COPY --from=builder /build/app/bin/tas-mcp-server /tas-mcp-server
 
 # Copy configuration files
-COPY --from=builder /app/configs /configs
+COPY --from=builder /build/app/configs /configs
 
 # Copy healthcheck script
-COPY --from=builder /app/scripts/healthcheck.sh /healthcheck.sh
+COPY --from=builder /build/app/scripts/healthcheck.sh /healthcheck.sh
 RUN chmod +x /healthcheck.sh
 
 # Create non-root user
