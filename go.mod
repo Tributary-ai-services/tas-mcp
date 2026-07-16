@@ -6,7 +6,9 @@ toolchain go1.24.4
 
 require (
 	github.com/Tributary-ai-services/Gatekeeper v0.0.0-00010101000000-000000000000
+	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/gorilla/mux v1.8.1
+	github.com/redis/go-redis/v9 v9.21.0
 	go.uber.org/zap v1.26.0
 	golang.org/x/oauth2 v0.34.0
 	google.golang.org/grpc v1.79.0
@@ -20,6 +22,9 @@ require (
 replace github.com/Tributary-ai-services/Gatekeeper => ../Gatekeeper
 
 require (
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect

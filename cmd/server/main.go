@@ -86,14 +86,41 @@ func main() {
 // concrete type). It no-ops unless REDUCTION_ENABLED. Returns the *Reducer (nil
 // when disabled) so main can Close it on shutdown.
 func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Manager, *reduction.Reducer) {
-	mgr := federation.NewManagerWithDefaults(zapLogger)
+	registry := buildFederationRegistry(cfg, zapLogger)
+	mgr := federation.NewManagerWithRegistry(
+		zapLogger, federation.NewDiscovery(zapLogger), federation.NewBridge(zapLogger), registry)
 
 	reducer := reduction.Install(mgr, reduction.FromConfig(cfg.Reduction), zapLogger)
+
+	// Start the manager lifecycle (health monitoring + the registry Watch that
+	// converges local services when another replica unregisters a server).
+	if err := mgr.Start(context.Background()); err != nil {
+		zapLogger.Error("Failed to start federation manager", zap.Error(err))
+	}
 
 	zapLogger.Info("Federation gateway enabled",
 		zap.Bool("reduce_at_source", reducer != nil))
 
 	return mgr, reducer
+}
+
+// buildFederationRegistry selects the registry backend from config. Default is
+// the in-process memory registry; FEDERATION_REGISTRY=redis uses a shared Redis
+// registry so multiple gateway replicas agree on the federated set. A redis
+// init failure falls back to memory rather than blocking startup.
+func buildFederationRegistry(cfg *config.Config, zapLogger *zap.Logger) federation.Registry {
+	if cfg.Federation != nil && cfg.Federation.Registry == "redis" {
+		reg, err := federation.NewRedisRegistryFromURL(cfg.Federation.RedisURL)
+		if err != nil {
+			zapLogger.Error("federation: redis registry init failed; using in-memory",
+				zap.Error(err))
+			return federation.NewMemoryRegistry()
+		}
+		zapLogger.Info("federation registry: redis (shared across replicas)",
+			zap.String("redis_url", cfg.Federation.RedisURL))
+		return reg
+	}
+	return federation.NewMemoryRegistry()
 }
 
 func initializeApp() (*config.Config, *zap.Logger) {

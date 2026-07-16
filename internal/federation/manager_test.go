@@ -99,6 +99,51 @@ func createTestManager() *Manager {
 	return NewManager(logger, discovery, bridge)
 }
 
+// InvokeServer self-heals: a definition present in the (shared) registry but
+// with no local MCPService — as if another replica registered it — is built
+// lazily and served. This is the multi-replica fix (#19).
+func TestInvokeServer_SelfHealsFromRegistry(t *testing.T) {
+	manager := createTestManager()
+	server := createTestServer()
+
+	// Put the definition straight into the registry, bypassing RegisterServer so
+	// NO local service is created (simulates a register on another replica).
+	if err := manager.registry.Put(context.Background(), server); err != nil {
+		t.Fatalf("registry.Put: %v", err)
+	}
+	manager.mu.RLock()
+	_, hasBefore := manager.services[server.ID]
+	manager.mu.RUnlock()
+	if hasBefore {
+		t.Fatal("precondition: no local service should exist yet")
+	}
+
+	resp, err := manager.InvokeServer(context.Background(), server.ID,
+		&MCPRequest{ID: "1", Method: "tools/list"})
+	if err != nil {
+		t.Fatalf("InvokeServer should self-heal from the registry, got: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("nil response")
+	}
+
+	manager.mu.RLock()
+	_, hasAfter := manager.services[server.ID]
+	manager.mu.RUnlock()
+	if !hasAfter {
+		t.Error("service should be built and cached after self-heal")
+	}
+}
+
+// InvokeServer for a truly unknown id (not in the registry) still errors.
+func TestInvokeServer_UnknownStillErrors(t *testing.T) {
+	manager := createTestManager()
+	if _, err := manager.InvokeServer(context.Background(), "ghost",
+		&MCPRequest{ID: "1", Method: "tools/list"}); err == nil {
+		t.Error("invoking an unregistered server should error")
+	}
+}
+
 func TestNewManager(t *testing.T) {
 	manager := createTestManager()
 
