@@ -300,7 +300,7 @@ func TestUnsupportedProtocol(t *testing.T) {
 	logger := zap.NewNop()
 	bridge := &MockProtocolBridge{}
 	server := createTestServer()
-	server.Protocol = ProtocolSSE // Unsupported protocol
+	server.Protocol = ProtocolStdIO // not proxied by the gateway
 
 	_, err := NewGenericService(server, logger, bridge)
 	if err == nil {
