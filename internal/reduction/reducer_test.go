@@ -138,8 +138,8 @@ func TestNew_DisabledReturnsNil(t *testing.T) {
 }
 
 func TestNew_EnabledBuildsReducer(t *testing.T) {
-	// A build with SLM enabled should succeed without contacting Ollama (the
-	// extractor connects lazily on first use).
+	// A build succeeds without contacting Ollama (the extractor connects lazily
+	// on first use).
 	r, err := New(Config{Enabled: true, OllamaURL: "http://ollama:11434", SLMEnabled: true})
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
@@ -153,14 +153,18 @@ func TestNew_EnabledBuildsReducer(t *testing.T) {
 	_ = r.Close()
 }
 
-func TestNew_EnabledWithoutSLMErrors(t *testing.T) {
-	// Relevance-only (no SLM) can't reduce without a per-request query, so New
-	// must surface a config error rather than return a silently no-op reducer.
+func TestNew_RelevanceOnlyBuilds(t *testing.T) {
+	// Relevance-only (SLM off) is a valid, GPU-free mode now that the tool-call
+	// query is threaded to the reducer — it must build, not error.
 	r, err := New(Config{Enabled: true, OllamaURL: "http://ollama:11434"})
-	if err == nil {
-		t.Error("enabled without SLM should error (would otherwise silently no-op)")
+	if err != nil {
+		t.Fatalf("relevance-only build should succeed: %v", err)
 	}
-	if r != nil {
-		t.Error("no reducer should be returned on the config error")
+	if r == nil {
+		t.Fatal("expected a reducer for relevance-only config")
 	}
+	if !r.hasEmbed || r.hasSLM {
+		t.Errorf("relevance-only: hasEmbed=%v hasSLM=%v, want true/false", r.hasEmbed, r.hasSLM)
+	}
+	_ = r.Close()
 }

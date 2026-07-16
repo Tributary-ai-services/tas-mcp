@@ -13,9 +13,11 @@ type fakeProcessor struct {
 	transform func(*MCPResponse) *MCPResponse
 }
 
-func (f *fakeProcessor) ProcessResult(_ context.Context, method string, resp *MCPResponse) *MCPResponse {
+func (f *fakeProcessor) ProcessResult(_ context.Context, req *MCPRequest, resp *MCPResponse) *MCPResponse {
 	f.called = true
-	f.gotMethod = method
+	if req != nil {
+		f.gotMethod = req.Method
+	}
 	if f.transform != nil {
 		return f.transform(resp)
 	}
@@ -34,7 +36,7 @@ func markReduced(r *MCPResponse) *MCPResponse {
 // Gatekeeper-backed processor is installed).
 func TestNoopResultProcessor_PassThrough(t *testing.T) {
 	in := &MCPResponse{ID: "x", Result: "hello"}
-	out := noopResultProcessor{}.ProcessResult(context.Background(), "tools/call", in)
+	out := noopResultProcessor{}.ProcessResult(context.Background(), &MCPRequest{Method: "tools/call"}, in)
 	if out != in {
 		t.Fatal("noop processor must return the same response pointer, unchanged")
 	}

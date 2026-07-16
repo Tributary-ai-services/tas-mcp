@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"strings"
 	"sync"
 )
 
@@ -64,16 +66,16 @@ func NewReducingResultProcessor(r Reducer) ResultProcessor {
 // it. For any other method, a nil reducer, an unrecognized result shape, or a
 // per-block reduction error, it returns resp unchanged (fail-open — a reduction
 // failure must never drop or corrupt a tool result).
-func (p *reducingResultProcessor) ProcessResult(ctx context.Context, method string, resp *MCPResponse) *MCPResponse {
+func (p *reducingResultProcessor) ProcessResult(ctx context.Context, req *MCPRequest, resp *MCPResponse) *MCPResponse {
 	if p.reducer == nil || resp == nil || resp.Error != nil {
 		return resp
 	}
 	// Only tools/call responses carry reducible external content.
-	if method != "tools/call" {
+	if req == nil || req.Method != "tools/call" {
 		return resp
 	}
 
-	query := toolCallQuery(resp)
+	query := toolCallQuery(req)
 	var savedBytes int
 
 	// A bare-string result is held by value on resp, so reduce it directly.
@@ -240,15 +242,31 @@ func contentArrayBlocks(result map[string]interface{}) []textBlock {
 	return blocks
 }
 
-// toolCallQuery best-effort recovers a relevance query for the reduction from
-// the response metadata. Absent an explicit query the reducer runs query-less
-// (e.g. summarization rather than relevance extraction); returning "" is fine.
-func toolCallQuery(resp *MCPResponse) string {
-	if resp.Meta == nil {
+// naturalQueryFields are argument keys that commonly hold the user's actual
+// question/query for a tool, in preference order.
+var naturalQueryFields = []string{"query", "question", "q", "prompt", "text", "input", "search"}
+
+// toolCallQuery derives a relevance anchor for reduction from a tools/call
+// request's arguments (MCP params shape: {"name": ..., "arguments": {...}}). It
+// prefers a natural-language field (query/question/…) and otherwise falls back
+// to the serialized arguments, so the relevance step still has something to rank
+// the tool result against. Returns "" when there are no arguments — the reducer
+// then summarizes (if an SLM is configured) or no-ops for that call.
+func toolCallQuery(req *MCPRequest) string {
+	if req == nil || req.Params == nil {
 		return ""
 	}
-	if q, ok := resp.Meta["query"].(string); ok {
-		return q
+	args, ok := req.Params["arguments"].(map[string]interface{})
+	if !ok || len(args) == 0 {
+		return ""
+	}
+	for _, k := range naturalQueryFields {
+		if v, ok := args[k].(string); ok && strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	if b, err := json.Marshal(args); err == nil {
+		return string(b)
 	}
 	return ""
 }
