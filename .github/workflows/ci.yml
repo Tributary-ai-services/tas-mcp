@@ -12,7 +12,8 @@ permissions:
   actions: read
 
 env:
-  GO_VERSION: '1.23'
+  # tas-mcp's go.mod requires 1.24 (reduce-at-source pulls Gatekeeper's pkg/extract).
+  GO_VERSION: '1.24'
 
 jobs:
   test:
@@ -24,7 +25,13 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-      
+
+    # tas-mcp's go.mod replaces github.com/Tributary-ai-services/Gatekeeper with
+    # ../Gatekeeper (reduce-at-source imports its pure-Go pkg/extract). Clone it
+    # as a sibling of the checkout so the replace resolves. Public repo → no token.
+    - name: Checkout Gatekeeper (local-replace dependency)
+      run: git clone --depth 1 https://github.com/Tributary-ai-services/Gatekeeper.git ../Gatekeeper
+
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
@@ -103,7 +110,13 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-      
+
+    # tas-mcp's go.mod replaces github.com/Tributary-ai-services/Gatekeeper with
+    # ../Gatekeeper (reduce-at-source imports its pure-Go pkg/extract). Clone it
+    # as a sibling of the checkout so the replace resolves. Public repo → no token.
+    - name: Checkout Gatekeeper (local-replace dependency)
+      run: git clone --depth 1 https://github.com/Tributary-ai-services/Gatekeeper.git ../Gatekeeper
+
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
@@ -147,7 +160,13 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-      
+
+    # tas-mcp's go.mod replaces github.com/Tributary-ai-services/Gatekeeper with
+    # ../Gatekeeper (reduce-at-source imports its pure-Go pkg/extract). Clone it
+    # as a sibling of the checkout so the replace resolves. Public repo → no token.
+    - name: Checkout Gatekeeper (local-replace dependency)
+      run: git clone --depth 1 https://github.com/Tributary-ai-services/Gatekeeper.git ../Gatekeeper
+
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
@@ -183,7 +202,10 @@ jobs:
       run: make build
       
     - name: Build Docker image
-      run: make docker
+      # The Dockerfile builds from the monorepo-root context so the ../Gatekeeper
+      # replace resolves. In CI the checkout's parent holds tas-mcp/ + the cloned
+      # Gatekeeper/, so use it as the build context.
+      run: docker build -f Dockerfile -t tas-mcp:latest ..
 
     - name: Test Docker image
       run: |
@@ -220,6 +242,9 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Checkout Gatekeeper (local-replace dependency)
+      run: git clone --depth 1 https://github.com/Tributary-ai-services/Gatekeeper.git ../Gatekeeper
+
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
@@ -251,7 +276,9 @@ jobs:
       continue-on-error: true
       
     - name: Build Docker image for security scan
-      run: docker build -t tas-mcp:security-test .
+      # Root-context build (needs the Gatekeeper sibling); parent holds
+      # tas-mcp/ + the cloned Gatekeeper/ in CI.
+      run: docker build -f Dockerfile -t tas-mcp:security-test ..
       continue-on-error: true
 
     - name: Run Trivy vulnerability scanner on Docker image
