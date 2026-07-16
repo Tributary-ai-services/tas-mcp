@@ -145,6 +145,32 @@ func TestReducingProcessor_UnknownShapePassthrough(t *testing.T) {
 	}
 }
 
+// The reduce-once cache is bounded: past its capacity the least-recently-used
+// entry is evicted so it can't grow without limit.
+func TestReduceLRU_EvictsLeastRecentlyUsed(t *testing.T) {
+	c := newReduceLRU(2)
+	c.put("a", "A")
+	c.put("b", "B")
+	// Touch "a" so "b" becomes least-recently-used.
+	if _, ok := c.get("a"); !ok {
+		t.Fatal("a should be present")
+	}
+	c.put("c", "C") // over capacity → evicts "b"
+
+	if _, ok := c.get("b"); ok {
+		t.Error("b should have been evicted (LRU)")
+	}
+	if v, ok := c.get("a"); !ok || v != "A" {
+		t.Error("a should still be present")
+	}
+	if v, ok := c.get("c"); !ok || v != "C" {
+		t.Error("c should be present")
+	}
+	if c.ll.Len() != 2 || len(c.m) != 2 {
+		t.Errorf("cache exceeded bound: ll=%d map=%d, want 2/2", c.ll.Len(), len(c.m))
+	}
+}
+
 func TestReducingProcessor_NilReducerPassthrough(t *testing.T) {
 	p := NewReducingResultProcessor(nil)
 	orig := strings.Repeat("x", 100)

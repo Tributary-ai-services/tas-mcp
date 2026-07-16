@@ -23,7 +23,7 @@ func TestInstall_NilManagerIsSafe(t *testing.T) {
 
 func TestInstall_EnabledReturnsReducer(t *testing.T) {
 	m := federation.NewManagerWithDefaults(zap.NewNop())
-	r := Install(m, Config{Enabled: true, OllamaURL: "http://ollama:11434"}, zap.NewNop())
+	r := Install(m, Config{Enabled: true, OllamaURL: "http://ollama:11434", SLMEnabled: true}, zap.NewNop())
 	if r == nil {
 		t.Fatal("enabled config should install a processor and return the reducer")
 	}

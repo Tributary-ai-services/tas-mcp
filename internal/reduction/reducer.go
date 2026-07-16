@@ -66,6 +66,17 @@ func New(cfg Config) (*Reducer, error) {
 		return nil, nil
 	}
 
+	// Relevance-only reduction (Extract) needs a per-request query to rank
+	// against, but the MCP tool-call path does not yet thread one to the
+	// reducer — so without an SLM the reducer has no working reduction mode and
+	// would silently no-op every result. Refuse rather than pretend to reduce.
+	// (When the tool-call query is threaded through, relax this to allow
+	// relevance-only mode.)
+	if !cfg.SLMEnabled {
+		return nil, fmt.Errorf("reduce-at-source requires an SLM (set SLMEnabled/REDUCTION_SLM_ENABLED): " +
+			"relevance-only reduction needs a per-request query the MCP tool-call path does not yet provide")
+	}
+
 	ec := extract.DefaultExtractorConfig()
 	ec.EnableEmbedding = true
 	if cfg.EmbedModel != "" {

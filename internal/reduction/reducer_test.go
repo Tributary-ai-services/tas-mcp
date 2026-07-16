@@ -138,17 +138,29 @@ func TestNew_DisabledReturnsNil(t *testing.T) {
 }
 
 func TestNew_EnabledBuildsReducer(t *testing.T) {
-	// Embeddings-only (no SLM) build should succeed without contacting Ollama
-	// (the extractor connects lazily on first Extract call).
-	r, err := New(Config{Enabled: true, OllamaURL: "http://ollama:11434"})
+	// A build with SLM enabled should succeed without contacting Ollama (the
+	// extractor connects lazily on first use).
+	r, err := New(Config{Enabled: true, OllamaURL: "http://ollama:11434", SLMEnabled: true})
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
 	if r == nil {
 		t.Fatal("enabled config should return a reducer")
 	}
-	if !r.hasEmbed || r.hasSLM {
-		t.Errorf("default enabled config: hasEmbed=%v hasSLM=%v, want true/false", r.hasEmbed, r.hasSLM)
+	if !r.hasEmbed || !r.hasSLM {
+		t.Errorf("enabled+SLM config: hasEmbed=%v hasSLM=%v, want true/true", r.hasEmbed, r.hasSLM)
 	}
 	_ = r.Close()
+}
+
+func TestNew_EnabledWithoutSLMErrors(t *testing.T) {
+	// Relevance-only (no SLM) can't reduce without a per-request query, so New
+	// must surface a config error rather than return a silently no-op reducer.
+	r, err := New(Config{Enabled: true, OllamaURL: "http://ollama:11434"})
+	if err == nil {
+		t.Error("enabled without SLM should error (would otherwise silently no-op)")
+	}
+	if r != nil {
+		t.Error("no reducer should be returned on the config error")
+	}
 }

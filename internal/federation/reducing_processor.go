@@ -1,11 +1,18 @@
 package federation
 
 import (
+	"container/list"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"sync"
 )
+
+// maxReduceCacheEntries bounds the reduce-once cache so a long-lived gateway
+// federating high-cardinality tool output can't grow it without limit. Reducing
+// is deterministic, so evicting an entry only costs a recompute, never
+// correctness.
+const maxReduceCacheEntries = 4096
 
 // Reducer deterministically shrinks a single block of tool-result text — the
 // port the reducing ResultProcessor depends on. The Gatekeeper-backed adapter
@@ -34,13 +41,12 @@ type Reducer interface {
 type reducingResultProcessor struct {
 	reducer Reducer
 
-	// once memoizes reduced text by content hash so identical tool output isn't
+	// cache memoizes reduced text by content hash so identical tool output isn't
 	// re-reduced on repeat calls (the "reduce once" half of the contract). The
 	// Reducer is deterministic, so a cache hit returns the exact same bytes a
 	// fresh reduction would — caching only saves the work, it never changes the
-	// result.
-	mu   sync.RWMutex
-	once map[string]string
+	// result. Bounded (LRU) so it can't grow without limit.
+	cache *reduceLRU
 }
 
 // NewReducingResultProcessor returns a ResultProcessor that reduces tools/call
@@ -50,7 +56,7 @@ type reducingResultProcessor struct {
 func NewReducingResultProcessor(r Reducer) ResultProcessor {
 	return &reducingResultProcessor{
 		reducer: r,
-		once:    make(map[string]string),
+		cache:   newReduceLRU(maxReduceCacheEntries),
 	}
 }
 
@@ -106,10 +112,7 @@ func (p *reducingResultProcessor) ProcessResult(ctx context.Context, method stri
 func (p *reducingResultProcessor) reduceOnce(ctx context.Context, content, query string) string {
 	key := reduceKey(query, content)
 
-	p.mu.RLock()
-	cached, ok := p.once[key]
-	p.mu.RUnlock()
-	if ok {
+	if cached, ok := p.cache.get(key); ok {
 		return cached
 	}
 
@@ -119,10 +122,54 @@ func (p *reducingResultProcessor) reduceOnce(ctx context.Context, content, query
 		return content
 	}
 
-	p.mu.Lock()
-	p.once[key] = reduced
-	p.mu.Unlock()
+	p.cache.put(key, reduced)
 	return reduced
+}
+
+// reduceLRU is a small mutex-guarded LRU mapping content-hash keys to reduced
+// text. It bounds the reduce-once memoization to max entries, evicting the
+// least-recently-used key on overflow.
+type reduceLRU struct {
+	mu  sync.Mutex
+	max int
+	ll  *list.List // front = most recently used
+	m   map[string]*list.Element
+}
+
+type reduceEntry struct{ key, val string }
+
+func newReduceLRU(max int) *reduceLRU {
+	if max <= 0 {
+		max = maxReduceCacheEntries
+	}
+	return &reduceLRU{max: max, ll: list.New(), m: make(map[string]*list.Element, max)}
+}
+
+func (c *reduceLRU) get(key string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.m[key]; ok {
+		c.ll.MoveToFront(el)
+		return el.Value.(*reduceEntry).val, true
+	}
+	return "", false
+}
+
+func (c *reduceLRU) put(key, val string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.m[key]; ok {
+		c.ll.MoveToFront(el)
+		el.Value.(*reduceEntry).val = val
+		return
+	}
+	c.m[key] = c.ll.PushFront(&reduceEntry{key: key, val: val})
+	if c.ll.Len() > c.max {
+		if oldest := c.ll.Back(); oldest != nil {
+			c.ll.Remove(oldest)
+			delete(c.m, oldest.Value.(*reduceEntry).key)
+		}
+	}
 }
 
 func reduceKey(query, content string) string {
