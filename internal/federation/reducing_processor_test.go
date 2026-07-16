@@ -61,7 +61,7 @@ func TestReducingProcessor_ReducesContentArray(t *testing.T) {
 
 	orig := strings.Repeat("x", 100)
 	resp := &MCPResponse{ID: "1", Result: contentResult(orig)}
-	out := p.ProcessResult(context.Background(), &MCPRequest{Method: "tools/call"}, resp)
+	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
 
 	if got := firstText(t, out.Result); len(got) != 50 {
 		t.Errorf("text not reduced: got %d bytes, want 50", len(got))
@@ -77,7 +77,7 @@ func TestReducingProcessor_ReducesContentArray(t *testing.T) {
 func TestReducingProcessor_ReducesBareString(t *testing.T) {
 	p := NewReducingResultProcessor(&truncReducer{})
 	resp := &MCPResponse{ID: "1", Result: strings.Repeat("y", 80)}
-	out := p.ProcessResult(context.Background(), &MCPRequest{Method: "tools/call"}, resp)
+	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
 
 	if s, _ := out.Result.(string); len(s) != 40 {
 		t.Errorf("bare string not reduced: got %q (%d bytes), want 40", out.Result, len(s))
@@ -104,7 +104,7 @@ func TestReducingProcessor_FailOpenOnReducerError(t *testing.T) {
 
 	orig := strings.Repeat("x", 100)
 	resp := &MCPResponse{ID: "1", Result: contentResult(orig)}
-	out := p.ProcessResult(context.Background(), &MCPRequest{Method: "tools/call"}, resp)
+	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
 
 	if got := firstText(t, out.Result); got != orig {
 		t.Errorf("content changed on reducer error: got %d bytes, want original %d", len(got), len(orig))
@@ -119,7 +119,7 @@ func TestReducingProcessor_SkipsErrorResponse(t *testing.T) {
 	p := NewReducingResultProcessor(r)
 	resp := &MCPResponse{ID: "1", Error: &MCPError{Code: 1, Message: "boom"}, Result: contentResult("xxxx")}
 
-	p.ProcessResult(context.Background(), &MCPRequest{Method: "tools/call"}, resp)
+	p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
 	if r.calls.Load() != 0 {
 		t.Error("reducer ran on an error response")
 	}
@@ -132,7 +132,7 @@ func TestReducingProcessor_ReduceOnceCache(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		resp := &MCPResponse{ID: "1", Result: contentResult(orig)}
-		out := p.ProcessResult(context.Background(), &MCPRequest{Method: "tools/call"}, resp)
+		out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
 		if got := firstText(t, out.Result); len(got) != 50 {
 			t.Fatalf("iteration %d: text not reduced deterministically: %d bytes", i, len(got))
 		}
@@ -147,7 +147,7 @@ func TestReducingProcessor_UnknownShapePassthrough(t *testing.T) {
 	p := NewReducingResultProcessor(r)
 	// A number result matches no known shape → untouched, reducer never runs.
 	resp := &MCPResponse{ID: "1", Result: 42}
-	out := p.ProcessResult(context.Background(), &MCPRequest{Method: "tools/call"}, resp)
+	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
 
 	if out.Result != 42 || out.Meta["reduced"] == true {
 		t.Errorf("unknown result shape should pass through: %#v", out)
@@ -163,7 +163,7 @@ func TestReducingProcessor_ThreadsToolCallQuery(t *testing.T) {
 	r := &truncReducer{}
 	p := NewReducingResultProcessor(r)
 	req := &MCPRequest{
-		Method: "tools/call",
+		Method: methodToolsCall,
 		Params: map[string]interface{}{
 			"name":      "search",
 			"arguments": map[string]interface{}{"query": "capital of France"},
@@ -179,7 +179,7 @@ func TestReducingProcessor_ThreadsToolCallQuery(t *testing.T) {
 
 func TestToolCallQuery(t *testing.T) {
 	args := func(m map[string]interface{}) *MCPRequest {
-		return &MCPRequest{Method: "tools/call", Params: map[string]interface{}{"arguments": m}}
+		return &MCPRequest{Method: methodToolsCall, Params: map[string]interface{}{"arguments": m}}
 	}
 	cases := []struct {
 		name string
@@ -189,7 +189,7 @@ func TestToolCallQuery(t *testing.T) {
 		{"natural field", args(map[string]interface{}{"query": "hi"}), "hi"},
 		{"question field", args(map[string]interface{}{"question": "why"}), "why"},
 		{"json fallback", args(map[string]interface{}{"table": "users"}), `{"table":"users"}`},
-		{"no args", &MCPRequest{Method: "tools/call"}, ""},
+		{"no args", &MCPRequest{Method: methodToolsCall}, ""},
 		{"nil req", nil, ""},
 		{"empty args", args(map[string]interface{}{}), ""},
 	}
@@ -232,7 +232,7 @@ func TestReducingProcessor_NilReducerPassthrough(t *testing.T) {
 	p := NewReducingResultProcessor(nil)
 	orig := strings.Repeat("x", 100)
 	resp := &MCPResponse{ID: "1", Result: contentResult(orig)}
-	out := p.ProcessResult(context.Background(), &MCPRequest{Method: "tools/call"}, resp)
+	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
 
 	if got := firstText(t, out.Result); got != orig {
 		t.Error("nil-reducer processor must pass content through unchanged")

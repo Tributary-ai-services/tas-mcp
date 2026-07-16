@@ -8,6 +8,8 @@ import (
 	"github.com/Tributary-ai-services/Gatekeeper/pkg/extract"
 )
 
+const inputContent = "content"
+
 // fakeExtractor records which method was called and returns canned results, so
 // the Reducer's routing logic can be tested without Ollama or an SLM.
 type fakeExtractor struct {
@@ -18,7 +20,7 @@ type fakeExtractor struct {
 	err             error
 }
 
-func (f *fakeExtractor) Extract(_ context.Context, _ extract.ExtractRequest) (*extract.ExtractResult, error) {
+func (f *fakeExtractor) Extract(_ context.Context, _ extract.ExtractRequest) (*extract.ExtractResult, error) { //nolint:gocritic // signature mandated by extract.Extractor
 	f.extractCalled = true
 	if f.err != nil {
 		return nil, f.err
@@ -26,7 +28,7 @@ func (f *fakeExtractor) Extract(_ context.Context, _ extract.ExtractRequest) (*e
 	return &extract.ExtractResult{Content: []byte(f.extractOut)}, nil
 }
 
-func (f *fakeExtractor) Summarize(_ context.Context, _ extract.SummarizeRequest) (*extract.SummarizeResult, error) {
+func (f *fakeExtractor) Summarize(_ context.Context, _ extract.SummarizeRequest) (*extract.SummarizeResult, error) { //nolint:gocritic // signature mandated by extract.Extractor
 	f.summarizeCalled = true
 	if f.err != nil {
 		return nil, f.err
@@ -76,7 +78,7 @@ func TestReduce_QueryButNoEmbedFallsBackToSummarize(t *testing.T) {
 	f := &fakeExtractor{summarizeOut: "tl;dr"}
 	r := newTestReducer(f, false, true) // embeddings off
 
-	_, err := r.Reduce(context.Background(), "content", "a query")
+	_, err := r.Reduce(context.Background(), inputContent, "a query")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,14 +91,14 @@ func TestReduce_NoEmbedNoSLMIsNoop(t *testing.T) {
 	f := &fakeExtractor{}
 	r := newTestReducer(f, false, false)
 
-	out, err := r.Reduce(context.Background(), "content", "a query")
+	out, err := r.Reduce(context.Background(), inputContent, "a query")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if f.extractCalled || f.summarizeCalled {
 		t.Error("with neither embeddings nor SLM, Reduce must be a no-op")
 	}
-	if out != "content" {
+	if out != inputContent {
 		t.Errorf("no-op must return content unchanged, got %q", out)
 	}
 }
@@ -105,7 +107,7 @@ func TestReduce_ExtractErrorPropagates(t *testing.T) {
 	f := &fakeExtractor{err: errors.New("embedder down")}
 	r := newTestReducer(f, true, true)
 
-	if _, err := r.Reduce(context.Background(), "content", "a query"); err == nil {
+	if _, err := r.Reduce(context.Background(), inputContent, "a query"); err == nil {
 		t.Error("Extract error should propagate (processor fails open on it)")
 	}
 }
@@ -114,15 +116,15 @@ func TestReduce_SummarizeErrorPropagates(t *testing.T) {
 	f := &fakeExtractor{err: errors.New("slm down")}
 	r := newTestReducer(f, true, true)
 
-	if _, err := r.Reduce(context.Background(), "content", ""); err == nil {
+	if _, err := r.Reduce(context.Background(), inputContent, ""); err == nil {
 		t.Error("Summarize error should propagate")
 	}
 }
 
 func TestReduce_NilReducerIsNoop(t *testing.T) {
 	var r *Reducer
-	out, err := r.Reduce(context.Background(), "content", "q")
-	if err != nil || out != "content" {
+	out, err := r.Reduce(context.Background(), inputContent, "q")
+	if err != nil || out != inputContent {
 		t.Errorf("nil reducer must be a safe no-op: out=%q err=%v", out, err)
 	}
 }

@@ -36,7 +36,7 @@ func markReduced(r *MCPResponse) *MCPResponse {
 // Gatekeeper-backed processor is installed).
 func TestNoopResultProcessor_PassThrough(t *testing.T) {
 	in := &MCPResponse{ID: "x", Result: "hello"}
-	out := noopResultProcessor{}.ProcessResult(context.Background(), &MCPRequest{Method: "tools/call"}, in)
+	out := noopResultProcessor{}.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, in)
 	if out != in {
 		t.Fatal("noop processor must return the same response pointer, unchanged")
 	}
@@ -54,7 +54,7 @@ func TestInvokeServer_RunsResultProcessor(t *testing.T) {
 	fp := &fakeProcessor{transform: markReduced}
 	manager.SetResultProcessor(fp)
 
-	req := &MCPRequest{ID: "r1", Method: "tools/call"}
+	req := &MCPRequest{ID: "r1", Method: methodToolsCall}
 	resp, err := manager.InvokeServer(context.Background(), server.ID, req)
 	if err != nil {
 		t.Fatalf("InvokeServer error: %v", err)
@@ -62,7 +62,7 @@ func TestInvokeServer_RunsResultProcessor(t *testing.T) {
 	if !fp.called {
 		t.Error("result processor was not invoked")
 	}
-	if fp.gotMethod != "tools/call" {
+	if fp.gotMethod != methodToolsCall {
 		t.Errorf("processor saw method %q, want tools/call", fp.gotMethod)
 	}
 	if resp == nil || resp.Meta["reduced"] != true {
@@ -78,7 +78,7 @@ func TestInvokeServer_NoopByDefault(t *testing.T) {
 		t.Fatalf("Failed to register server: %v", err)
 	}
 
-	resp, err := manager.InvokeServer(context.Background(), server.ID, &MCPRequest{ID: "r1", Method: "tools/call"})
+	resp, err := manager.InvokeServer(context.Background(), server.ID, &MCPRequest{ID: "r1", Method: methodToolsCall})
 	if err != nil {
 		t.Fatalf("InvokeServer error: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestSetResultProcessor_NilResetsToNoop(t *testing.T) {
 	manager.SetResultProcessor(&fakeProcessor{transform: markReduced})
 	manager.SetResultProcessor(nil) // reset
 
-	resp, err := manager.InvokeServer(context.Background(), server.ID, &MCPRequest{ID: "r1", Method: "tools/call"})
+	resp, err := manager.InvokeServer(context.Background(), server.ID, &MCPRequest{ID: "r1", Method: methodToolsCall})
 	if err != nil {
 		t.Fatalf("InvokeServer error: %v", err)
 	}

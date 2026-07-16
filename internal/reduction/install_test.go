@@ -3,8 +3,9 @@ package reduction
 import (
 	"testing"
 
-	"github.com/tributary-ai-services/tas-mcp/internal/federation"
 	"go.uber.org/zap"
+
+	"github.com/tributary-ai-services/tas-mcp/internal/federation"
 )
 
 func TestInstall_DisabledLeavesNoop(t *testing.T) {

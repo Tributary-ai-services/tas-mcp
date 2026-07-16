@@ -61,7 +61,7 @@ type Reducer struct {
 // error means the extractor could not be constructed; the caller should treat
 // that as "reduction unavailable" and leave the no-op processor in place
 // (reduce-at-source must never take a service down).
-func New(cfg Config) (*Reducer, error) {
+func New(cfg Config) (*Reducer, error) { //nolint:gocritic // Config passed by value at startup; not a hot path
 	if !cfg.Enabled {
 		return nil, nil
 	}
