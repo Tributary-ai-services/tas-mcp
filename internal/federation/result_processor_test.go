@@ -45,8 +45,13 @@ func TestNoopResultProcessor_PassThrough(t *testing.T) {
 // InvokeServer runs the installed processor with the request method and returns
 // its (possibly transformed) result — the reduce-at-source seam.
 func TestInvokeServer_RunsResultProcessor(t *testing.T) {
+	ts := newTestMCPServer(t)
+	defer ts.Close()
+
 	manager := createTestManager()
 	server := createTestServer()
+	server.Endpoint = ts.URL
+	server.Reduce = true // reduction is per-server opt-in
 	if err := manager.RegisterServer(server); err != nil {
 		t.Fatalf("Failed to register server: %v", err)
 	}
