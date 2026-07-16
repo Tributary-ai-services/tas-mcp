@@ -35,6 +35,9 @@ const (
 	// DefaultReductionOllamaURL is the default embedder/SLM endpoint for
 	// reduce-at-source (the relevance step always runs on Ollama).
 	DefaultReductionOllamaURL = "http://ollama:11434"
+	// DefaultFederationRedisURL is the default shared-registry Redis endpoint
+	// (used only when FEDERATION_REGISTRY=redis).
+	DefaultFederationRedisURL = "redis://redis-shared.tas-shared.svc.cluster.local:6379/0"
 )
 
 // Config holds all configuration for the TAS MCP server
@@ -51,6 +54,17 @@ type Config struct {
 	Version         string
 	Forwarding      *ForwardingConfig `json:"forwarding,omitempty"`
 	Reduction       *ReductionConfig  `json:"reduction,omitempty"`
+	Federation      *FederationConfig `json:"federation,omitempty"`
+}
+
+// FederationConfig selects the federation registry backend. Nil (the default)
+// means the in-memory registry (single-pod semantics). Set Registry=redis for a
+// shared registry so multiple gateway replicas agree on the federated set.
+type FederationConfig struct {
+	// Registry is the backend: "memory" (default) or "redis".
+	Registry string `json:"registry"`
+	// RedisURL is the shared-registry endpoint (used when Registry=redis).
+	RedisURL string `json:"redis_url,omitempty"`
 }
 
 // ReductionConfig configures cache-safe reduce-at-source for federated tool
@@ -202,7 +216,20 @@ func Load() *Config {
 		config.Reduction = loadReductionConfig()
 	}
 
+	// Load federation registry configuration if a backend is chosen
+	if getEnv("FEDERATION_REGISTRY", "") != "" {
+		config.Federation = loadFederationConfig()
+	}
+
 	return config
+}
+
+// loadFederationConfig loads federation registry configuration from environment
+func loadFederationConfig() *FederationConfig {
+	return &FederationConfig{
+		Registry: getEnv("FEDERATION_REGISTRY", "memory"),
+		RedisURL: getEnv("FEDERATION_REDIS_URL", DefaultFederationRedisURL),
+	}
 }
 
 // LoadFromFile loads configuration from a JSON file

@@ -92,6 +92,33 @@ func TestMemoryRegistry_PutUpsert(t *testing.T) {
 	}
 }
 
+func TestMemoryRegistry_Watch(t *testing.T) {
+	r := NewMemoryRegistry()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	events, err := r.Watch(ctx)
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+
+	// notify sends synchronously under the lock before Put/Delete returns, so
+	// the events are queued deterministically by the time these calls return.
+	_ = r.Put(ctx, &MCPServer{ID: "a"})
+	_ = r.Delete(ctx, "a")
+
+	if e := <-events; e.Type != RegistryPut || e.ID != "a" {
+		t.Errorf("event 1 = %+v, want put/a", e)
+	}
+	if e := <-events; e.Type != RegistryDelete || e.ID != "a" {
+		t.Errorf("event 2 = %+v, want delete/a", e)
+	}
+
+	// Canceling closes the channel.
+	cancel()
+	for range events { //nolint:revive // draining until close
+	}
+}
+
 // memoryRegistry returns live pointers, so the Manager's in-place status updates
 // are visible through Get (the behavior a serializing impl will replace with
 // read-modify-Put in Slice 2). This documents/locks that contract.

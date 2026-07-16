@@ -61,9 +61,15 @@ type Metrics struct {
 
 // NewManager creates a new federation manager
 func NewManager(logger *zap.Logger, discovery ServiceDiscovery, bridge ProtocolBridge) *Manager {
+	return NewManagerWithRegistry(logger, discovery, bridge, NewMemoryRegistry())
+}
+
+// NewManagerWithRegistry creates a federation manager backed by a specific
+// Registry (e.g. a shared redisRegistry so replicas agree on the federated set).
+func NewManagerWithRegistry(logger *zap.Logger, discovery ServiceDiscovery, bridge ProtocolBridge, registry Registry) *Manager {
 	return &Manager{
 		logger:          logger,
-		registry:        NewMemoryRegistry(),
+		registry:        registry,
 		services:        make(map[string]MCPService),
 		discovery:       discovery,
 		bridge:          bridge,
@@ -259,7 +265,40 @@ func (m *Manager) ListServersByCategory(category string) ([]*MCPServer, error) {
 	return servers, nil
 }
 
-// InvokeServer invokes a method on a specific server
+// ensureService returns this replica's live MCPService for serverID, building it
+// lazily from the shared registry definition if it isn't cached yet. This is the
+// core of the multi-replica fix: a definition registered on any replica becomes
+// invokable on every replica without a broadcast. Returns a not-found error if
+// no definition exists.
+func (m *Manager) ensureService(ctx context.Context, serverID string) (MCPService, error) {
+	m.mu.RLock()
+	svc, ok := m.services[serverID]
+	m.mu.RUnlock()
+	if ok {
+		return svc, nil
+	}
+
+	server, err := m.registry.Get(ctx, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("server with ID %s not found", serverID)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Double-check: another goroutine may have built it while we fetched the def.
+	if svc, ok := m.services[serverID]; ok {
+		return svc, nil
+	}
+	svc, err = m.createService(server)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service for server %s: %w", serverID, err)
+	}
+	m.services[serverID] = svc
+	return svc, nil
+}
+
+// InvokeServer invokes a method on a specific server, building the local service
+// lazily from the shared registry if needed (see ensureService).
 func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MCPRequest) (*MCPResponse, error) {
 	start := time.Now()
 	defer func() {
@@ -267,13 +306,13 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 		m.updateResponseTimeMetrics(duration)
 	}()
 
-	m.mu.RLock()
-	service, exists := m.services[serverID]
-	m.mu.RUnlock()
-
-	if !exists {
+	// Self-heal: with a shared registry, the definition may exist even if this
+	// replica never built the local MCPService (a register on another pod). Build
+	// it on demand from the shared definition so any replica can serve any invoke.
+	service, err := m.ensureService(ctx, serverID)
+	if err != nil {
 		m.updateFailureMetrics()
-		return nil, fmt.Errorf("server with ID %s not found", serverID)
+		return nil, err
 	}
 
 	m.updateRequestMetrics()
@@ -412,6 +451,11 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.healthWg.Add(1)
 	go m.healthMonitor()
 
+	// Converge local state with the shared registry (drop the live service for a
+	// server another replica unregistered).
+	m.healthWg.Add(1)
+	go m.watchRegistry()
+
 	// Start discovery if available
 	if m.discovery != nil {
 		if err := m.discovery.Watch(ctx, m.handleDiscoveryEvent); err != nil {
@@ -519,6 +563,42 @@ func (m *Manager) healthMonitor() {
 			return
 		case <-ticker.C:
 			m.performHealthChecks()
+		}
+	}
+}
+
+// watchRegistry consumes registry change events and converges this replica's
+// local services. On a delete (possibly from another replica) it stops and drops
+// the local MCPService so this pod stops serving the removed server. New/updated
+// definitions are picked up lazily by ensureService on the next invoke.
+func (m *Manager) watchRegistry() {
+	defer m.healthWg.Done()
+
+	events, err := m.registry.Watch(m.healthCtx)
+	if err != nil {
+		m.logger.Error("Failed to watch registry", zap.Error(err))
+		return
+	}
+	for {
+		select {
+		case <-m.healthCtx.Done():
+			return
+		case evt, ok := <-events:
+			if !ok {
+				return
+			}
+			if evt.Type != RegistryDelete {
+				continue
+			}
+			m.mu.Lock()
+			if svc, ok := m.services[evt.ID]; ok {
+				if err := svc.Stop(context.Background()); err != nil {
+					m.logger.Warn("Failed to stop service on registry delete",
+						zap.String("server_id", evt.ID), zap.Error(err))
+				}
+				delete(m.services, evt.ID)
+			}
+			m.mu.Unlock()
 		}
 	}
 }
