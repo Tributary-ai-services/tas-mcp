@@ -286,7 +286,7 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 	rp := m.resultProcessor
 	m.mu.RUnlock()
 	if rp != nil && response != nil {
-		response = rp.ProcessResult(ctx, request.Method, response)
+		response = rp.ProcessResult(ctx, request, response)
 	}
 	return response, nil
 }

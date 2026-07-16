@@ -28,7 +28,11 @@ type ResultProcessor interface {
 	// ProcessResult returns the tool-call response with its result reduced +
 	// compliance-scanned, or the original response unchanged for non-tool-call
 	// methods / on any failure. Never returns nil when given a non-nil resp.
-	ProcessResult(ctx context.Context, method string, resp *MCPResponse) *MCPResponse
+	//
+	// It takes the originating request (not just the method) so the processor
+	// can derive a relevance anchor from the tool-call arguments — reduction
+	// keeps the parts of a tool result relevant to what the tool was asked.
+	ProcessResult(ctx context.Context, req *MCPRequest, resp *MCPResponse) *MCPResponse
 }
 
 // noopResultProcessor is the default: it passes every response through
@@ -39,6 +43,6 @@ type ResultProcessor interface {
 type noopResultProcessor struct{}
 
 // ProcessResult returns resp unchanged.
-func (noopResultProcessor) ProcessResult(_ context.Context, _ string, resp *MCPResponse) *MCPResponse {
+func (noopResultProcessor) ProcessResult(_ context.Context, _ *MCPRequest, resp *MCPResponse) *MCPResponse {
 	return resp
 }

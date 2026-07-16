@@ -48,7 +48,7 @@ func TestFromConfig_MapsAllFields(t *testing.T) {
 
 // FromConfig(cfg.Reduction) → Install must produce a working reducer end to end.
 func TestFromConfig_FeedsNew(t *testing.T) {
-	rc := &config.ReductionConfig{Enabled: true, OllamaURL: "http://ollama:11434"}
+	rc := &config.ReductionConfig{Enabled: true, OllamaURL: "http://ollama:11434", SLMEnabled: true}
 	r, err := New(FromConfig(rc))
 	if err != nil {
 		t.Fatalf("New from mapped config failed: %v", err)
