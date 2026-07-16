@@ -163,6 +163,8 @@ func (s *GenericService) createClient() (ServiceClient, error) {
 	switch s.server.Protocol {
 	case ProtocolHTTP:
 		return NewHTTPClient(s.server, s.logger)
+	case ProtocolSSE:
+		return NewSSEClient(s.server, s.logger)
 	case ProtocolGRPC:
 		return NewGRPCClient(s.server, s.logger)
 	default:
