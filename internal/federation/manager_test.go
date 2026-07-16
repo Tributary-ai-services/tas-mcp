@@ -106,8 +106,8 @@ func TestNewManager(t *testing.T) {
 		t.Fatal("Expected manager to be created")
 	}
 
-	if manager.servers == nil {
-		t.Error("Expected servers map to be initialized")
+	if manager.registry == nil {
+		t.Error("Expected registry to be initialized")
 	}
 
 	if manager.services == nil {

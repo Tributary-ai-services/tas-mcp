@@ -20,8 +20,11 @@ const (
 
 // Manager implements the TASManager interface
 type Manager struct {
-	logger    *zap.Logger
-	servers   map[string]*MCPServer
+	logger *zap.Logger
+	// registry is the source of truth for server definitions (shared across
+	// replicas by a non-memory impl). services holds the live per-pod
+	// connections built from those definitions.
+	registry  Registry
 	services  map[string]MCPService
 	discovery ServiceDiscovery
 	bridge    ProtocolBridge
@@ -60,7 +63,7 @@ type Metrics struct {
 func NewManager(logger *zap.Logger, discovery ServiceDiscovery, bridge ProtocolBridge) *Manager {
 	return &Manager{
 		logger:          logger,
-		servers:         make(map[string]*MCPServer),
+		registry:        NewMemoryRegistry(),
 		services:        make(map[string]MCPService),
 		discovery:       discovery,
 		bridge:          bridge,
@@ -132,7 +135,7 @@ func (m *Manager) RegisterServer(server *MCPServer) error {
 	defer m.mu.Unlock()
 
 	// Check if server already exists
-	if _, exists := m.servers[server.ID]; exists {
+	if _, err := m.registry.Get(context.Background(), server.ID); err == nil {
 		return fmt.Errorf("server with ID %s already registered", server.ID)
 	}
 
@@ -143,12 +146,14 @@ func (m *Manager) RegisterServer(server *MCPServer) error {
 	server.Status = StatusUnknown
 
 	// Store server
-	m.servers[server.ID] = server
+	if err := m.registry.Put(context.Background(), server); err != nil {
+		return fmt.Errorf("failed to store server %s: %w", server.ID, err)
+	}
 
 	// Create service instance
 	service, err := m.createService(server)
 	if err != nil {
-		delete(m.servers, server.ID)
+		_ = m.registry.Delete(context.Background(), server.ID)
 		return fmt.Errorf("failed to create service for server %s: %w", server.ID, err)
 	}
 
@@ -174,8 +179,8 @@ func (m *Manager) UnregisterServer(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	server, exists := m.servers[id]
-	if !exists {
+	server, err := m.registry.Get(context.Background(), id)
+	if err != nil {
 		return fmt.Errorf("server with ID %s not found", id)
 	}
 
@@ -190,7 +195,7 @@ func (m *Manager) UnregisterServer(id string) error {
 	}
 
 	// Remove server
-	delete(m.servers, id)
+	_ = m.registry.Delete(context.Background(), id)
 
 	m.logger.Info("Unregistered MCP server",
 		zap.String("server_id", id),
@@ -204,8 +209,8 @@ func (m *Manager) GetServer(id string) (*MCPServer, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	server, exists := m.servers[id]
-	if !exists {
+	server, err := m.registry.Get(context.Background(), id)
+	if err != nil {
 		return nil, fmt.Errorf("server with ID %s not found", id)
 	}
 
@@ -219,8 +224,12 @@ func (m *Manager) ListServers() ([]*MCPServer, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	servers := make([]*MCPServer, 0, len(m.servers))
-	for _, server := range m.servers {
+	all, err := m.registry.List(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	servers := make([]*MCPServer, 0, len(all))
+	for _, server := range all {
 		// Return copies to prevent external modification
 		serverCopy := *server
 		servers = append(servers, &serverCopy)
@@ -234,8 +243,12 @@ func (m *Manager) ListServersByCategory(category string) ([]*MCPServer, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	all, err := m.registry.List(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	var servers []*MCPServer
-	for _, server := range m.servers {
+	for _, server := range all {
 		if server.Category == category {
 			// Return copies to prevent external modification
 			serverCopy := *server
@@ -296,7 +309,7 @@ func (m *Manager) BroadcastRequest(ctx context.Context, request *MCPRequest) ([]
 	m.mu.RLock()
 	services := make(map[string]MCPService)
 	for id, service := range m.services {
-		if m.servers[id].Status == StatusHealthy {
+		if srv, err := m.registry.Get(ctx, id); err == nil && srv.Status == StatusHealthy {
 			services[id] = service
 		}
 	}
@@ -344,10 +357,10 @@ func (m *Manager) BroadcastRequest(ctx context.Context, request *MCPRequest) ([]
 func (m *Manager) CheckHealth(ctx context.Context, serverID string) error {
 	m.mu.RLock()
 	service, exists := m.services[serverID]
-	server, serverExists := m.servers[serverID]
+	server, serverErr := m.registry.Get(ctx, serverID)
 	m.mu.RUnlock()
 
-	if !exists || !serverExists {
+	if !exists || serverErr != nil {
 		return fmt.Errorf("server with ID %s not found", serverID)
 	}
 
@@ -378,9 +391,13 @@ func (m *Manager) GetHealthStatus() (map[string]ServerStatus, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	all, err := m.registry.List(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	status := make(map[string]ServerStatus)
-	for id, server := range m.servers {
-		status[id] = server.Status
+	for _, server := range all {
+		status[server.ID] = server.Status
 	}
 
 	return status, nil
@@ -461,9 +478,11 @@ func (m *Manager) GetMetrics() *Metrics {
 	// Count active servers
 	m.mu.RLock()
 	activeCount := int64(0)
-	for _, server := range m.servers {
-		if server.Status == StatusHealthy {
-			activeCount++
+	if all, err := m.registry.List(context.Background()); err == nil {
+		for _, server := range all {
+			if server.Status == StatusHealthy {
+				activeCount++
+			}
 		}
 	}
 	m.mu.RUnlock()
@@ -507,10 +526,11 @@ func (m *Manager) healthMonitor() {
 // performHealthChecks performs health checks on all servers
 func (m *Manager) performHealthChecks() {
 	m.mu.RLock()
-	servers := make([]string, 0, len(m.servers))
-	for id, server := range m.servers {
+	all, _ := m.registry.List(context.Background())
+	servers := make([]string, 0, len(all))
+	for _, server := range all {
 		if server.HealthCheck.Enabled {
-			servers = append(servers, id)
+			servers = append(servers, server.ID)
 		}
 	}
 	m.mu.RUnlock()
@@ -545,13 +565,15 @@ func (m *Manager) handleDiscoveryEvent(server *MCPServer, event DiscoveryEvent) 
 				zap.Error(err))
 		}
 	case EventServerUpdated:
-		// Update existing server
+		// Update existing server (read-modify-Put so a serializing registry
+		// persists the change; for memoryRegistry this mutates the live pointer).
 		m.mu.Lock()
-		if existing, exists := m.servers[server.ID]; exists {
+		if existing, err := m.registry.Get(context.Background(), server.ID); err == nil {
 			existing.UpdatedAt = time.Now()
 			existing.Endpoint = server.Endpoint
 			existing.Status = server.Status
 			existing.Metadata = server.Metadata
+			_ = m.registry.Put(context.Background(), existing)
 		}
 		m.mu.Unlock()
 	}
