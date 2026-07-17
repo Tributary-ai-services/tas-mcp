@@ -54,7 +54,36 @@ type Config struct {
 	Version         string
 	Forwarding      *ForwardingConfig `json:"forwarding,omitempty"`
 	Reduction       *ReductionConfig  `json:"reduction,omitempty"`
+	Scanning        *ScanningConfig   `json:"scanning,omitempty"`
 	Federation      *FederationConfig `json:"federation,omitempty"`
+}
+
+// ScanningConfig configures Gatekeeper boundary scanning of federated tool
+// results (docs/AIQG-GATEKEEPER-INTEGRATION.md §4, tas-llm-router#101 G2). Nil
+// (the default, when SCANNING_ENABLED is unset) leaves the boundary unscanned.
+//
+// Scanning is the security control at the MCP proxy boundary: federated tool
+// output is TierExternal content flowing into LLM prompts. It runs independently
+// of reduction (which is a per-server opt-in optimization).
+type ScanningConfig struct {
+	Enabled bool `json:"enabled"`
+
+	// Redact controls whether findings are redacted in place. Default false =
+	// LOG-ONLY (observe + report, modify nothing) — the draft→enforce first
+	// stage, so the finding rate is understood before any tool output is altered.
+	Redact bool `json:"redact"`
+
+	// RedactStrategy is applied when Redact is true: "mask" (default), "replace",
+	// or "hash". All deterministic and infra-free. Tokenize is NOT offered — it
+	// needs Databunker (not deployed) and would break prompt caching.
+	RedactStrategy string `json:"redact_strategy,omitempty"`
+
+	// Profile selects the scan profile: "full" (default), "pii_only",
+	// "injection_only", "compliance".
+	Profile string `json:"profile,omitempty"`
+
+	// MinConfidence is the detection threshold (0 → Gatekeeper default 0.7).
+	MinConfidence float64 `json:"min_confidence,omitempty"`
 }
 
 // FederationConfig selects the federation registry backend. Nil (the default)
@@ -216,6 +245,11 @@ func Load() *Config {
 		config.Reduction = loadReductionConfig()
 	}
 
+	// Load boundary-scanning configuration if enabled
+	if getEnvAsBool("SCANNING_ENABLED", false) {
+		config.Scanning = loadScanningConfig()
+	}
+
 	// Load federation registry configuration if a backend is chosen
 	if getEnv("FEDERATION_REGISTRY", "") != "" {
 		config.Federation = loadFederationConfig()
@@ -291,6 +325,24 @@ func loadReductionConfig() *ReductionConfig {
 		SLMAPIKey:      getEnv("REDUCTION_SLM_API_KEY", ""),
 		SLMMaxTokens:   getEnvAsInt("REDUCTION_SLM_MAX_TOKENS", 0),
 		MaxOutputBytes: getEnvAsInt("REDUCTION_MAX_OUTPUT_BYTES", 0),
+	}
+}
+
+// loadScanningConfig loads boundary-scanning configuration from environment
+// variables. Redaction defaults OFF (log-only): the safe first stage.
+func loadScanningConfig() *ScanningConfig {
+	minConf := 0.0
+	if v := getEnv("SCANNING_MIN_CONFIDENCE", ""); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			minConf = f
+		}
+	}
+	return &ScanningConfig{
+		Enabled:        true,
+		Redact:         getEnvAsBool("SCANNING_REDACT", false),
+		RedactStrategy: getEnv("SCANNING_REDACT_STRATEGY", ""),
+		Profile:        getEnv("SCANNING_PROFILE", ""),
+		MinConfidence:  minConf,
 	}
 }
 

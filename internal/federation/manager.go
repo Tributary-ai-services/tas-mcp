@@ -39,11 +39,20 @@ type Manager struct {
 	// Metrics
 	metrics *Metrics
 
-	// resultProcessor reduces + compliance-scans tool-call results at the
-	// source, once, before the agent caches them (cache-safe reduce-at-source,
-	// AIQG_CACHE_SAFE_REDUCTION.md §9.A). Never nil after NewManager — defaults
-	// to a no-op; SetResultProcessor installs a Gatekeeper-backed one.
+	// resultProcessor reduces tool-call results at the source, once, before the
+	// agent caches them (cache-safe reduce-at-source, AIQG_CACHE_SAFE_REDUCTION.md
+	// §9.A). Never nil after NewManager — defaults to a no-op; SetResultProcessor
+	// installs a Gatekeeper-backed one. Reduction is a per-server opt-in
+	// optimization (gated on srv.Reduce at the call site).
 	resultProcessor ResultProcessor
+
+	// scanner compliance-scans tool-call results at the federation boundary
+	// (docs/AIQG-GATEKEEPER-INTEGRATION.md §4 / tas-llm-router#101 G2). Distinct
+	// from resultProcessor: scanning is the SECURITY control, so it runs on every
+	// external tool result regardless of srv.Reduce — a tool result is
+	// TierExternal content on its way into an LLM prompt. Nil until
+	// SetScanner installs a Gatekeeper-backed one (scanning off by default).
+	scanner ResultScanner
 }
 
 // Metrics tracks federation manager statistics
@@ -77,6 +86,15 @@ func NewManagerWithRegistry(logger *zap.Logger, discovery ServiceDiscovery, brid
 		metrics:         &Metrics{},
 		resultProcessor: noopResultProcessor{},
 	}
+}
+
+// SetScanner installs the boundary content scanner for federated tool results
+// (docs/AIQG-GATEKEEPER-INTEGRATION.md §2, G2). A nil argument turns scanning
+// off. Safe to call at runtime; the hot path reads it under the manager lock.
+func (m *Manager) SetScanner(s ResultScanner) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.scanner = s // nil is valid: scanning off
 }
 
 // SetResultProcessor installs the cache-safe reduce/scan processor for tool
@@ -329,17 +347,31 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 
 	m.updateSuccessMetrics()
 
-	// Cache-safe reduce-at-source (AIQG_CACHE_SAFE_REDUCTION.md §9.A): reduce +
-	// compliance-scan the tool result ONCE, here at production, before the agent
-	// caches it. Fail-open (the processor returns the original response on any
-	// error). Gated per-server (server.Reduce, set via the FederatedMCPServer CR)
-	// AND to tools/call, so structured-output servers aren't reduced.
+	// Boundary processing of tool-call results, ONCE, here at production, before
+	// the agent caches them. Order is scan → reduce (both fail-open — the
+	// original response is returned on any error). Only tools/call carries
+	// reducible/scannable external content, so structured-output methods pass
+	// through untouched.
 	if request.Method == methodToolsCall && response != nil {
-		if srv, gerr := m.registry.Get(ctx, serverID); gerr == nil && srv.Reduce {
-			m.mu.RLock()
-			rp := m.resultProcessor
-			m.mu.RUnlock()
-			if rp != nil {
+		m.mu.RLock()
+		sc := m.scanner
+		rp := m.resultProcessor
+		m.mu.RUnlock()
+
+		// Scan is the SECURITY control at the boundary: it runs on every
+		// external tool result, independent of the per-server reduce opt-in
+		// (docs/AIQG-GATEKEEPER-INTEGRATION.md §2 — scan at the boundary, not
+		// only where reduction happens to be enabled). It scans the ORIGINAL
+		// content and redacts (when enabled) BEFORE reduce runs — reduction is
+		// lossy, so scanning reduced text would under-report.
+		if sc != nil {
+			response = sc.ScanResult(ctx, serverID, request, response)
+		}
+
+		// Reduce is a per-server opt-in optimization, gated on srv.Reduce (set
+		// via the FederatedMCPServer CR).
+		if rp != nil {
+			if srv, gerr := m.registry.Get(ctx, serverID); gerr == nil && srv.Reduce {
 				response = rp.ProcessResult(ctx, request, response)
 			}
 		}

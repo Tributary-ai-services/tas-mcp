@@ -27,6 +27,7 @@ import (
 	httpserver "github.com/tributary-ai-services/tas-mcp/internal/http"
 	"github.com/tributary-ai-services/tas-mcp/internal/logger"
 	"github.com/tributary-ai-services/tas-mcp/internal/reduction"
+	"github.com/tributary-ai-services/tas-mcp/internal/scanning"
 )
 
 // Server configuration constants
@@ -92,6 +93,12 @@ func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Man
 
 	reducer := reduction.Install(mgr, reduction.FromConfig(cfg.Reduction), zapLogger)
 
+	// Gatekeeper boundary scanning of federated tool results (G2). Independent
+	// of reduction: scanning is the security control and runs on every external
+	// tool result. No-ops unless SCANNING_ENABLED. The scanner holds no
+	// resources, so it isn't threaded through shutdown.
+	scanner := scanning.Install(mgr, scanning.FromConfig(cfg.Scanning), zapLogger)
+
 	// Start the manager lifecycle (health monitoring + the registry Watch that
 	// converges local services when another replica unregisters a server).
 	if err := mgr.Start(context.Background()); err != nil {
@@ -99,7 +106,8 @@ func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Man
 	}
 
 	zapLogger.Info("Federation gateway enabled",
-		zap.Bool("reduce_at_source", reducer != nil))
+		zap.Bool("reduce_at_source", reducer != nil),
+		zap.Bool("boundary_scanning", scanner != nil))
 
 	return mgr, reducer
 }
