@@ -83,18 +83,28 @@ func findingSink(logger *zap.Logger, redact bool) federation.FindingSink {
 	}
 }
 
+// Severity ranks, highest first. Used to pick the max-severity finding when
+// deciding whether a scan result crosses the block/log threshold.
+const (
+	rankNone     = 0
+	rankLow      = 1
+	rankMedium   = 2
+	rankHigh     = 3
+	rankCritical = 4
+)
+
 func severityRank(s string) int {
 	switch s {
 	case "critical":
-		return 4
+		return rankCritical
 	case "high":
-		return 3
+		return rankHigh
 	case "medium":
-		return 2
+		return rankMedium
 	case "low":
-		return 1
+		return rankLow
 	default:
-		return 0
+		return rankNone
 	}
 }
 

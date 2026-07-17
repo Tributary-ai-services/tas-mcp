@@ -88,16 +88,19 @@ func NewManagerWithRegistry(logger *zap.Logger, discovery ServiceDiscovery, brid
 	}
 }
 
-// SetResultProcessor installs the cache-safe reduce/scan processor for tool
-// results (AIQG_CACHE_SAFE_REDUCTION.md §9.A). A nil argument resets to the
-// no-op (reduction off). Safe to call at runtime; the hot path reads it under
-// the manager lock.
+// SetScanner installs the boundary content scanner for federated tool results
+// (docs/AIQG-GATEKEEPER-INTEGRATION.md §2, G2). A nil argument turns scanning
+// off. Safe to call at runtime; the hot path reads it under the manager lock.
 func (m *Manager) SetScanner(s ResultScanner) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.scanner = s // nil is valid: scanning off
 }
 
+// SetResultProcessor installs the cache-safe reduce/scan processor for tool
+// results (AIQG_CACHE_SAFE_REDUCTION.md §9.A). A nil argument resets to the
+// no-op (reduction off). Safe to call at runtime; the hot path reads it under
+// the manager lock.
 func (m *Manager) SetResultProcessor(p ResultProcessor) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

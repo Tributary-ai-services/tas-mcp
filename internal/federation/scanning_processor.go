@@ -137,6 +137,30 @@ func (p *scanningResultProcessor) ScanResult(ctx context.Context, serverID strin
 		tier = p.tierFor(serverID)
 	}
 
+	findings, anyRedacted := p.scanResultContent(ctx, resp, tier)
+	if len(findings) == 0 {
+		return resp
+	}
+
+	if p.sink != nil {
+		p.sink(serverID, findings, anyRedacted)
+	}
+	if resp.Meta == nil {
+		resp.Meta = map[string]interface{}{}
+	}
+	resp.Meta["scanned"] = true
+	resp.Meta["scan_findings"] = len(findings)
+	if anyRedacted {
+		resp.Meta["scan_redacted"] = true
+	}
+	return resp
+}
+
+// scanResultContent scans the response's content in place — either a bare-string
+// result or each text block — and returns the aggregated findings plus whether
+// any block was redacted. Redaction writes back through resp.Result / the block
+// setter, so the caller's resp is mutated directly.
+func (p *scanningResultProcessor) scanResultContent(ctx context.Context, resp *MCPResponse, tier TrustTier) ([]ScanFinding, bool) {
 	var findings []ScanFinding
 	anyRedacted := false
 
@@ -150,38 +174,25 @@ func (p *scanningResultProcessor) ScanResult(ctx context.Context, serverID strin
 				anyRedacted = true
 			}
 		}
-	} else {
-		for _, b := range textBlocks(resp.Result) {
-			orig := b.text()
-			if orig == "" {
-				continue
-			}
-			out, ok := p.scanBlock(ctx, orig, tier)
-			if !ok {
-				continue
-			}
-			findings = append(findings, out.Findings...)
-			if out.Redacted && out.Content != orig {
-				b.set(out.Content)
-				anyRedacted = true
-			}
-		}
+		return findings, anyRedacted
 	}
 
-	if len(findings) > 0 {
-		if p.sink != nil {
-			p.sink(serverID, findings, anyRedacted)
+	for _, b := range textBlocks(resp.Result) {
+		orig := b.text()
+		if orig == "" {
+			continue
 		}
-		if resp.Meta == nil {
-			resp.Meta = map[string]interface{}{}
+		out, ok := p.scanBlock(ctx, orig, tier)
+		if !ok {
+			continue
 		}
-		resp.Meta["scanned"] = true
-		resp.Meta["scan_findings"] = len(findings)
-		if anyRedacted {
-			resp.Meta["scan_redacted"] = true
+		findings = append(findings, out.Findings...)
+		if out.Redacted && out.Content != orig {
+			b.set(out.Content)
+			anyRedacted = true
 		}
 	}
-	return resp
+	return findings, anyRedacted
 }
 
 // scanBlock scans one block, honoring log-only mode. It returns ok=false on a

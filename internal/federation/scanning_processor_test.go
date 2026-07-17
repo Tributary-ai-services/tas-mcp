@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+// secretValue is the canonical sensitive payload the scanning tests feed
+// through the processor, extracted to satisfy goconst.
+const secretValue = "a SECRET value"
+
 // fakeBlockScanner flags any block containing needle, "redacting" by replacing
 // needle with [X]. tier and calls are recorded for assertions.
 type fakeBlockScanner struct {
@@ -142,10 +146,10 @@ func TestScanningProcessor_FailOpenOnScanError(t *testing.T) {
 	sc := &fakeBlockScanner{needle: "SECRET", failOn: "SECRET"}
 	sink := &collectSink{}
 	p := NewScanningResultProcessor(sc, nil, sink.fn(), true)
-	resp := &MCPResponse{ID: "1", Result: contentResult("a SECRET value")}
+	resp := &MCPResponse{ID: "1", Result: contentResult(secretValue)}
 	out := p.ScanResult(context.Background(), "srv", toolsCallReq(), resp)
 
-	if got := firstText(t, out.Result); got != "a SECRET value" {
+	if got := firstText(t, out.Result); got != secretValue {
 		t.Fatalf("fail-open corrupted content: %q", got)
 	}
 	if sink.calls != 0 {
@@ -158,7 +162,7 @@ func TestScanningProcessor_FailOpenOnScanError(t *testing.T) {
 func TestScanningProcessor_TierDefaultsExternal(t *testing.T) {
 	sc := &fakeBlockScanner{needle: "SECRET"}
 	p := NewScanningResultProcessor(sc, nil, nil, true)
-	resp := &MCPResponse{ID: "1", Result: contentResult("a SECRET value")}
+	resp := &MCPResponse{ID: "1", Result: contentResult(secretValue)}
 	p.ScanResult(context.Background(), "srv", toolsCallReq(), resp)
 	if sc.lastTier != TierExternal {
 		t.Fatalf("default tier = %v, want TierExternal", sc.lastTier)
@@ -174,7 +178,7 @@ func TestScanningProcessor_TierFromMapper(t *testing.T) {
 		return TierExternal
 	}
 	p := NewScanningResultProcessor(sc, tierFor, nil, true)
-	resp := &MCPResponse{ID: "1", Result: contentResult("a SECRET value")}
+	resp := &MCPResponse{ID: "1", Result: contentResult(secretValue)}
 	p.ScanResult(context.Background(), "trusted", toolsCallReq(), resp)
 	if sc.lastTier != TierPartner {
 		t.Fatalf("tier = %v, want TierPartner for trusted server", sc.lastTier)
@@ -203,9 +207,9 @@ func TestScanningProcessor_ScansEveryBlock(t *testing.T) {
 // A nil scanner is a pass-through (defensive; callers install nothing instead).
 func TestScanningProcessor_NilScannerPassesThrough(t *testing.T) {
 	p := NewScanningResultProcessor(nil, nil, nil, true)
-	resp := &MCPResponse{ID: "1", Result: contentResult("a SECRET value")}
+	resp := &MCPResponse{ID: "1", Result: contentResult(secretValue)}
 	out := p.ScanResult(context.Background(), "srv", toolsCallReq(), resp)
-	if got := firstText(t, out.Result); got != "a SECRET value" {
+	if got := firstText(t, out.Result); got != secretValue {
 		t.Fatalf("nil scanner modified content: %q", got)
 	}
 }
@@ -214,7 +218,7 @@ func TestScanningProcessor_NilScannerPassesThrough(t *testing.T) {
 func TestScanningProcessor_ErrorResponseUntouched(t *testing.T) {
 	sc := &fakeBlockScanner{needle: "SECRET"}
 	p := NewScanningResultProcessor(sc, nil, nil, true)
-	resp := &MCPResponse{ID: "1", Error: &MCPError{Message: "boom"}, Result: contentResult("a SECRET value")}
+	resp := &MCPResponse{ID: "1", Error: &MCPError{Message: "boom"}, Result: contentResult(secretValue)}
 	p.ScanResult(context.Background(), "srv", toolsCallReq(), resp)
 	if sc.calls != 0 {
 		t.Fatalf("scanned an error response")
