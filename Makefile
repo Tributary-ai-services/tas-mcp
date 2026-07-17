@@ -19,7 +19,7 @@ all: clean deps proto build test
 # Build the binary
 build:
 	@echo "Building ${BINARY_NAME}..."
-	go build ${LDFLAGS} -o bin/${BINARY_NAME} ./cmd/server
+	go build -tags nohs ${LDFLAGS} -o bin/${BINARY_NAME} ./cmd/server
 
 # Clean build artifacts
 clean:
@@ -33,7 +33,7 @@ test: test-unit
 # Run unit tests
 test-unit:
 	@echo "Running unit tests..."
-	go test -v -race -coverprofile=coverage.out ./internal/...
+	go test -tags nohs -v -race -coverprofile=coverage.out ./internal/...
 
 # Run integration tests
 test-integration:

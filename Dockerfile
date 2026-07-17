@@ -35,8 +35,14 @@ RUN go mod download
 # Copy source code
 COPY tas-mcp/ .
 
-# Build the application with version info
+# Build the application with version info.
+# -tags nohs selects Gatekeeper's regexp match engine (pkg/scan) instead of
+# Hyperscan. Hyperscan needs cgo + libhyperscan, incompatible with the static
+# CGO_ENABLED=0 build here; the regexp engine is cgo-free, deterministic, and
+# matches tas-llm-router's prod convention (engine changes don't reach prod,
+# only matcher changes do). Pulled in by G2 boundary scanning.
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -tags nohs \
     -ldflags="-w -s -extldflags '-static' -X main.version=${VERSION} -X main.buildDate=${BUILD_DATE} -X main.gitCommit=${VCS_REF}" \
     -a -installsuffix cgo \
     -o bin/tas-mcp-server \
