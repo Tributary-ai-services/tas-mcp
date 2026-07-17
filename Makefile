@@ -16,9 +16,14 @@ DOCKER_BUILD_CMD=docker build
 # Default target
 all: clean deps proto build test
 
-# Build the binary
+# Build the binary.
+# -tags nohs selects Gatekeeper's Go-regexp match engine so local/CI builds
+# don't need libhyperscan-dev installed. The DEPLOYED image (Dockerfile) builds
+# the default Intel Hyperscan engine (CGO). The pattern set is identical between
+# engines; only the matcher execution differs. To build the Hyperscan engine
+# locally, install libhyperscan-dev + pkg-config and drop the tag.
 build:
-	@echo "Building ${BINARY_NAME}..."
+	@echo "Building ${BINARY_NAME} (regexp engine; Docker image uses Hyperscan)..."
 	go build -tags nohs ${LDFLAGS} -o bin/${BINARY_NAME} ./cmd/server
 
 # Clean build artifacts
