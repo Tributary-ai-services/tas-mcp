@@ -1,6 +1,8 @@
 # golangci-lint configuration for TAS MCP Server
 
 run:
+  build-tags:
+    - nohs
   timeout: 5m
   tests: true
   modules-download-mode: readonly
