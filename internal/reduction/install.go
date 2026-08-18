@@ -33,7 +33,7 @@ func Install(m *federation.Manager, cfg Config, logger *zap.Logger) *Reducer { /
 		return nil
 	}
 
-	m.SetResultProcessor(federation.NewReducingResultProcessor(r))
+	m.SetResultProcessor(federation.NewReducingResultProcessor(r, logger))
 	if logger != nil {
 		logger.Info("reduce-at-source: enabled",
 			zap.Bool("slm", cfg.SLMEnabled),
