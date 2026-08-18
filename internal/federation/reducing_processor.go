@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 // maxReduceCacheEntries bounds the reduce-once cache so a long-lived gateway
@@ -50,6 +52,13 @@ type Reducer interface {
 type reducingResultProcessor struct {
 	reducer Reducer
 
+	// logger records why each tools/call was or was not reduced. This exists
+	// because the processor was previously SILENT: a reducer error was swallowed
+	// by the fail-open path, and a call that reduced nothing was
+	// indistinguishable from one where reduction never ran at all. Debugging a
+	// "reduction does nothing" report meant reading the source and guessing.
+	logger *zap.Logger
+
 	// cache memoizes reduced text by content hash so identical tool output isn't
 	// re-reduced on repeat calls (the "reduce once" half of the contract). The
 	// Reducer is deterministic, so a cache hit returns the exact same bytes a
@@ -62,9 +71,13 @@ type reducingResultProcessor struct {
 // result text through r. A nil reducer yields a processor that passes every
 // response through unchanged (defensive — callers should install the no-op
 // processor instead of a nil-backed one).
-func NewReducingResultProcessor(r Reducer) ResultProcessor {
+func NewReducingResultProcessor(r Reducer, logger *zap.Logger) ResultProcessor {
+	if logger == nil {
+		logger = zap.NewNop()
+	}
 	return &reducingResultProcessor{
 		reducer: r,
+		logger:  logger,
 		cache:   newReduceLRU(maxReduceCacheEntries),
 	}
 }
@@ -82,12 +95,22 @@ func (p *reducingResultProcessor) ProcessResult(ctx context.Context, req *MCPReq
 		return resp
 	}
 
+	tool := toolCallName(req)
 	query := toolCallQuery(req)
-	var savedBytes int
+	var savedBytes, bytesIn, blocks, cacheHits, failures int
 
 	// A bare-string result is held by value on resp, so reduce it directly.
 	if s, ok := resp.Result.(string); ok && s != "" {
-		if reduced := p.reduceOnce(ctx, s, query); len(reduced) < len(s) {
+		blocks++
+		bytesIn += len(s)
+		reduced, hit, err := p.reduceOnce(ctx, s, query)
+		if hit {
+			cacheHits++
+		}
+		if err != nil {
+			failures++
+		}
+		if len(reduced) < len(s) {
 			resp.Result = reduced
 			savedBytes += len(s) - len(reduced)
 		}
@@ -97,12 +120,52 @@ func (p *reducingResultProcessor) ProcessResult(ctx context.Context, req *MCPReq
 			if orig == "" {
 				continue
 			}
-			reduced := p.reduceOnce(ctx, orig, query)
+			blocks++
+			bytesIn += len(orig)
+			reduced, hit, err := p.reduceOnce(ctx, orig, query)
+			if hit {
+				cacheHits++
+			}
+			if err != nil {
+				failures++
+			}
 			if len(reduced) < len(orig) {
 				b.set(reduced)
 				savedBytes += len(orig) - len(reduced)
 			}
 		}
+	}
+
+	// One line per tools/call describing what happened and why. The `reason`
+	// field is the important part: "reduction did nothing" has several very
+	// different causes and they were previously indistinguishable from outside.
+	fields := []zap.Field{
+		zap.String("tool", tool),
+		zap.Int("blocks", blocks),
+		zap.Int("bytes_in", bytesIn),
+		zap.Int("bytes_saved", savedBytes),
+		zap.Int("cache_hits", cacheHits),
+		zap.Int("reduce_errors", failures),
+		// An empty query means the relevance path is unavailable: the Reducer
+		// falls back to SLM summarization, and with the SLM off it is a no-op.
+		zap.Int("query_len", len(query)),
+	}
+
+	switch {
+	case savedBytes > 0:
+		p.logger.Info("reduce-at-source: reduced", append(fields,
+			zap.Float64("saved_pct", float64(savedBytes)/float64(bytesIn)*100))...)
+	case blocks == 0:
+		p.logger.Debug("reduce-at-source: no-op", append(fields, zap.String("reason", "no_text_blocks"))...)
+	case failures > 0:
+		p.logger.Debug("reduce-at-source: no-op", append(fields, zap.String("reason", "reducer_failed"))...)
+	case query == "":
+		p.logger.Debug("reduce-at-source: no-op", append(fields, zap.String("reason", "no_query_anchor"))...)
+	default:
+		// The reducer ran and returned content no smaller than the input —
+		// e.g. every chunk scored above the relevance threshold, or the payload
+		// was under the extractor's minimum content size.
+		p.logger.Debug("reduce-at-source: no-op", append(fields, zap.String("reason", "nothing_dropped"))...)
 	}
 
 	if savedBytes > 0 {
@@ -115,24 +178,40 @@ func (p *reducingResultProcessor) ProcessResult(ctx context.Context, req *MCPReq
 	return resp
 }
 
+// toolCallName returns the tools/call target name for logging, or "" when the
+// request shape is unexpected.
+func toolCallName(req *MCPRequest) string {
+	if req == nil || req.Params == nil {
+		return ""
+	}
+	if n, ok := req.Params["name"].(string); ok {
+		return n
+	}
+	return ""
+}
+
 // reduceOnce returns the reduced form of content, computing it at most once per
 // distinct (query, content) and memoizing the result. On a reducer error it
 // returns the original content unchanged (fail-open) and does not cache.
-func (p *reducingResultProcessor) reduceOnce(ctx context.Context, content, query string) string {
+func (p *reducingResultProcessor) reduceOnce(ctx context.Context, content, query string) (string, bool, error) {
 	key := reduceKey(query, content)
 
 	if cached, ok := p.cache.get(key); ok {
-		return cached
+		return cached, true, nil
 	}
 
 	reduced, err := p.reducer.Reduce(ctx, content, query)
 	if err != nil {
-		// Fail-open: keep the original text, don't poison the cache.
-		return content
+		// Fail-open: keep the original text, don't poison the cache. Logged at
+		// WARN because this is a real fault that used to be entirely invisible —
+		// the caller sees a normal, simply-unreduced response.
+		p.logger.Warn("reduce-at-source: reducer failed, keeping original content",
+			zap.Int("bytes", len(content)), zap.Error(err))
+		return content, false, err
 	}
 
 	p.cache.put(key, reduced)
-	return reduced
+	return reduced, false, nil
 }
 
 // reduceLRU is a small mutex-guarded LRU mapping content-hash keys to reduced

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"go.uber.org/zap"
 )
 
 // truncReducer is a deterministic fake: it keeps the first half of the content,
@@ -57,7 +59,7 @@ func firstText(t *testing.T, result interface{}) string {
 
 func TestReducingProcessor_ReducesContentArray(t *testing.T) {
 	r := &truncReducer{}
-	p := NewReducingResultProcessor(r)
+	p := NewReducingResultProcessor(r, zap.NewNop())
 
 	orig := strings.Repeat("x", 100)
 	resp := &MCPResponse{ID: "1", Result: contentResult(orig)}
@@ -75,7 +77,7 @@ func TestReducingProcessor_ReducesContentArray(t *testing.T) {
 }
 
 func TestReducingProcessor_ReducesBareString(t *testing.T) {
-	p := NewReducingResultProcessor(&truncReducer{})
+	p := NewReducingResultProcessor(&truncReducer{}, zap.NewNop())
 	resp := &MCPResponse{ID: "1", Result: strings.Repeat("y", 80)}
 	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
 
@@ -86,7 +88,7 @@ func TestReducingProcessor_ReducesBareString(t *testing.T) {
 
 func TestReducingProcessor_OnlyToolsCall(t *testing.T) {
 	r := &truncReducer{}
-	p := NewReducingResultProcessor(r)
+	p := NewReducingResultProcessor(r, zap.NewNop())
 	resp := &MCPResponse{ID: "1", Result: contentResult(strings.Repeat("x", 100))}
 
 	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsList}, resp)
@@ -100,7 +102,7 @@ func TestReducingProcessor_OnlyToolsCall(t *testing.T) {
 
 func TestReducingProcessor_FailOpenOnReducerError(t *testing.T) {
 	r := &truncReducer{err: errors.New("slm down")}
-	p := NewReducingResultProcessor(r)
+	p := NewReducingResultProcessor(r, zap.NewNop())
 
 	orig := strings.Repeat("x", 100)
 	resp := &MCPResponse{ID: "1", Result: contentResult(orig)}
@@ -116,7 +118,7 @@ func TestReducingProcessor_FailOpenOnReducerError(t *testing.T) {
 
 func TestReducingProcessor_SkipsErrorResponse(t *testing.T) {
 	r := &truncReducer{}
-	p := NewReducingResultProcessor(r)
+	p := NewReducingResultProcessor(r, zap.NewNop())
 	resp := &MCPResponse{ID: "1", Error: &MCPError{Code: 1, Message: "boom"}, Result: contentResult("xxxx")}
 
 	p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
@@ -127,7 +129,7 @@ func TestReducingProcessor_SkipsErrorResponse(t *testing.T) {
 
 func TestReducingProcessor_ReduceOnceCache(t *testing.T) {
 	r := &truncReducer{}
-	p := NewReducingResultProcessor(r)
+	p := NewReducingResultProcessor(r, zap.NewNop())
 	orig := strings.Repeat("z", 100)
 
 	for i := 0; i < 3; i++ {
@@ -144,7 +146,7 @@ func TestReducingProcessor_ReduceOnceCache(t *testing.T) {
 
 func TestReducingProcessor_UnknownShapePassthrough(t *testing.T) {
 	r := &truncReducer{}
-	p := NewReducingResultProcessor(r)
+	p := NewReducingResultProcessor(r, zap.NewNop())
 	// A number result matches no known shape → untouched, reducer never runs.
 	resp := &MCPResponse{ID: "1", Result: 42}
 	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
@@ -161,7 +163,7 @@ func TestReducingProcessor_UnknownShapePassthrough(t *testing.T) {
 // anchor (this is what makes relevance-mode reduction work).
 func TestReducingProcessor_ThreadsToolCallQuery(t *testing.T) {
 	r := &truncReducer{}
-	p := NewReducingResultProcessor(r)
+	p := NewReducingResultProcessor(r, zap.NewNop())
 	req := &MCPRequest{
 		Method: methodToolsCall,
 		Params: map[string]interface{}{
@@ -229,7 +231,7 @@ func TestReduceLRU_EvictsLeastRecentlyUsed(t *testing.T) {
 }
 
 func TestReducingProcessor_NilReducerPassthrough(t *testing.T) {
-	p := NewReducingResultProcessor(nil)
+	p := NewReducingResultProcessor(nil, zap.NewNop())
 	orig := strings.Repeat("x", 100)
 	resp := &MCPResponse{ID: "1", Result: contentResult(orig)}
 	out := p.ProcessResult(context.Background(), &MCPRequest{Method: methodToolsCall}, resp)
@@ -247,7 +249,7 @@ func TestReducingProcessor_WiresIntoManager(t *testing.T) {
 	if err := manager.RegisterServer(server); err != nil {
 		t.Fatalf("Failed to register server: %v", err)
 	}
-	manager.SetResultProcessor(NewReducingResultProcessor(&truncReducer{}))
+	manager.SetResultProcessor(NewReducingResultProcessor(&truncReducer{}, zap.NewNop()))
 
 	resp, err := manager.InvokeServer(context.Background(), server.ID, &MCPRequest{ID: "r1", Method: methodToolsList})
 	if err != nil {
