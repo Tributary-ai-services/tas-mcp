@@ -46,6 +46,23 @@ spec:
         env:
         - name: VERSION
           value: "1.0.0"
+        # Federation registry store. This was applied straight to the cluster
+        # and had never been in this manifest, so `kubectl apply -k` would
+        # have dropped it and sent the federation registry back to in-memory.
+        #
+        # redis-shared requires a password since 2026-09-18 (SEC-24). It comes
+        # from the Secret and is interpolated here; REDIS_PASSWORD must be
+        # declared before FEDERATION_REDIS_URL, since $(VAR) expansion only
+        # sees variables defined earlier in the same env list.
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-shared-auth
+              key: password
+        - name: FEDERATION_REGISTRY
+          value: "redis"
+        - name: FEDERATION_REDIS_URL
+          value: "redis://:$(REDIS_PASSWORD)@redis-shared.tas-shared.svc.cluster.local:6379/0"
         envFrom:
         - configMapRef:
             name: tas-mcp-config
