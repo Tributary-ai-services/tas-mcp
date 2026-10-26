@@ -95,24 +95,13 @@ func (p *reducingResultProcessor) ProcessResult(ctx context.Context, req *MCPReq
 		return resp
 	}
 
-	tool := toolCallName(req)
 	query := toolCallQuery(req)
-	var savedBytes, bytesIn, blocks, cacheHits, failures int
+	var st reduceStats
 
 	// A bare-string result is held by value on resp, so reduce it directly.
 	if s, ok := resp.Result.(string); ok && s != "" {
-		blocks++
-		bytesIn += len(s)
-		reduced, hit, err := p.reduceOnce(ctx, s, query)
-		if hit {
-			cacheHits++
-		}
-		if err != nil {
-			failures++
-		}
-		if len(reduced) < len(s) {
+		if reduced, shrunk := p.reduceBlock(ctx, s, query, &st); shrunk {
 			resp.Result = reduced
-			savedBytes += len(s) - len(reduced)
 		}
 	} else {
 		for _, b := range textBlocks(resp.Result) {
@@ -120,44 +109,76 @@ func (p *reducingResultProcessor) ProcessResult(ctx context.Context, req *MCPReq
 			if orig == "" {
 				continue
 			}
-			blocks++
-			bytesIn += len(orig)
-			reduced, hit, err := p.reduceOnce(ctx, orig, query)
-			if hit {
-				cacheHits++
-			}
-			if err != nil {
-				failures++
-			}
-			if len(reduced) < len(orig) {
+			if reduced, shrunk := p.reduceBlock(ctx, orig, query, &st); shrunk {
 				b.set(reduced)
-				savedBytes += len(orig) - len(reduced)
 			}
 		}
 	}
 
-	// One line per tools/call describing what happened and why. The `reason`
-	// field is the important part: "reduction did nothing" has several very
-	// different causes and they were previously indistinguishable from outside.
+	p.logOutcome(toolCallName(req), query, &st)
+
+	if st.savedBytes > 0 {
+		if resp.Meta == nil {
+			resp.Meta = map[string]interface{}{}
+		}
+		resp.Meta["reduced"] = true
+		resp.Meta["reduced_bytes_saved"] = st.savedBytes
+	}
+	return resp
+}
+
+// percent scales a ratio to a percentage for logging.
+const percent = 100
+
+// reduceStats accumulates per-tools/call reduction counters for logOutcome and
+// the response metadata.
+type reduceStats struct {
+	savedBytes, bytesIn, blocks, cacheHits, failures int
+}
+
+// reduceBlock reduces one non-empty text block, records the outcome in st, and
+// returns the reduced text with shrunk=true only when it is strictly smaller
+// than orig (callers keep the original otherwise).
+func (p *reducingResultProcessor) reduceBlock(ctx context.Context, orig, query string, st *reduceStats) (reduced string, shrunk bool) {
+	st.blocks++
+	st.bytesIn += len(orig)
+	reduced, hit, err := p.reduceOnce(ctx, orig, query)
+	if hit {
+		st.cacheHits++
+	}
+	if err != nil {
+		st.failures++
+	}
+	if len(reduced) < len(orig) {
+		st.savedBytes += len(orig) - len(reduced)
+		return reduced, true
+	}
+	return orig, false
+}
+
+// logOutcome writes one line per tools/call describing what happened and why.
+// The `reason` field is the important part: "reduction did nothing" has several
+// very different causes and they were previously indistinguishable from outside.
+func (p *reducingResultProcessor) logOutcome(tool, query string, st *reduceStats) {
 	fields := []zap.Field{
 		zap.String("tool", tool),
-		zap.Int("blocks", blocks),
-		zap.Int("bytes_in", bytesIn),
-		zap.Int("bytes_saved", savedBytes),
-		zap.Int("cache_hits", cacheHits),
-		zap.Int("reduce_errors", failures),
+		zap.Int("blocks", st.blocks),
+		zap.Int("bytes_in", st.bytesIn),
+		zap.Int("bytes_saved", st.savedBytes),
+		zap.Int("cache_hits", st.cacheHits),
+		zap.Int("reduce_errors", st.failures),
 		// An empty query means the relevance path is unavailable: the Reducer
 		// falls back to SLM summarization, and with the SLM off it is a no-op.
 		zap.Int("query_len", len(query)),
 	}
 
 	switch {
-	case savedBytes > 0:
+	case st.savedBytes > 0:
 		p.logger.Info("reduce-at-source: reduced", append(fields,
-			zap.Float64("saved_pct", float64(savedBytes)/float64(bytesIn)*100))...)
-	case blocks == 0:
+			zap.Float64("saved_pct", float64(st.savedBytes)/float64(st.bytesIn)*percent))...)
+	case st.blocks == 0:
 		p.logger.Debug("reduce-at-source: no-op", append(fields, zap.String("reason", "no_text_blocks"))...)
-	case failures > 0:
+	case st.failures > 0:
 		p.logger.Debug("reduce-at-source: no-op", append(fields, zap.String("reason", "reducer_failed"))...)
 	case query == "":
 		p.logger.Debug("reduce-at-source: no-op", append(fields, zap.String("reason", "no_query_anchor"))...)
@@ -167,15 +188,6 @@ func (p *reducingResultProcessor) ProcessResult(ctx context.Context, req *MCPReq
 		// was under the extractor's minimum content size.
 		p.logger.Debug("reduce-at-source: no-op", append(fields, zap.String("reason", "nothing_dropped"))...)
 	}
-
-	if savedBytes > 0 {
-		if resp.Meta == nil {
-			resp.Meta = map[string]interface{}{}
-		}
-		resp.Meta["reduced"] = true
-		resp.Meta["reduced_bytes_saved"] = savedBytes
-	}
-	return resp
 }
 
 // toolCallName returns the tools/call target name for logging, or "" when the
@@ -193,14 +205,14 @@ func toolCallName(req *MCPRequest) string {
 // reduceOnce returns the reduced form of content, computing it at most once per
 // distinct (query, content) and memoizing the result. On a reducer error it
 // returns the original content unchanged (fail-open) and does not cache.
-func (p *reducingResultProcessor) reduceOnce(ctx context.Context, content, query string) (string, bool, error) {
+func (p *reducingResultProcessor) reduceOnce(ctx context.Context, content, query string) (reduced string, cacheHit bool, err error) {
 	key := reduceKey(query, content)
 
 	if cached, ok := p.cache.get(key); ok {
 		return cached, true, nil
 	}
 
-	reduced, err := p.reducer.Reduce(ctx, content, query)
+	reduced, err = p.reducer.Reduce(ctx, content, query)
 	if err != nil {
 		// Fail-open: keep the original text, don't poison the cache. Logged at
 		// WARN because this is a real fault that used to be entirely invisible —
