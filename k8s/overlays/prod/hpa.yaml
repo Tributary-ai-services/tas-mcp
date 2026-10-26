@@ -10,6 +10,11 @@ spec:
     name: prod-tas-mcp
   minReplicas: 5
   maxReplicas: 50
+  # CPU and memory only. A third Pods metric, tas_mcp_active_connections,
+  # needed a custom.metrics.k8s.io adapter (prometheus-adapter) that this
+  # cluster has never run, so every evaluation failed, ScalingActive stayed
+  # False, and the HPA could scale up but never down. Re-add it together
+  # with the adapter, not before.
   metrics:
   - type: Resource
     resource:
@@ -23,13 +28,6 @@ spec:
       target:
         type: Utilization
         averageUtilization: 70
-  - type: Pods
-    pods:
-      metric:
-        name: tas_mcp_active_connections
-      target:
-        type: AverageValue
-        averageValue: "80"
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 600
