@@ -78,7 +78,7 @@ func NewManager(logger *zap.Logger, discovery ServiceDiscovery, bridge ProtocolB
 func NewManagerWithRegistry(logger *zap.Logger, discovery ServiceDiscovery, bridge ProtocolBridge, registry Registry) *Manager {
 	return &Manager{
 		logger:          logger,
-		registry:        registry,
+		registry:        newInstrumentedRegistry(registry),
 		services:        make(map[string]MCPService),
 		discovery:       discovery,
 		bridge:          bridge,

@@ -102,7 +102,7 @@ func (c *SSEClient) Call(ctx context.Context, method string, params map[string]i
 		return nil, fmt.Errorf("read %s response: %w", c.server.ID, err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("%s returned %s: %s", c.server.ID, resp.Status,
+		return nil, fmt.Errorf("%s returned %s: %w: %s", c.server.ID, resp.Status, errUpstreamStatus,
 			string(data[:min(len(data), errBodyPreview)]))
 	}
 
@@ -111,7 +111,7 @@ func (c *SSEClient) Call(ctx context.Context, method string, params map[string]i
 		return nil, fmt.Errorf("%s: %w", c.server.ID, err)
 	}
 	if rpc.Error != nil {
-		return nil, fmt.Errorf("%s jsonrpc error %d: %s", c.server.ID, rpc.Error.Code, rpc.Error.Message)
+		return nil, fmt.Errorf("%s %w %d: %s", c.server.ID, errUpstreamJSONRPC, rpc.Error.Code, rpc.Error.Message)
 	}
 	return rpc.Result, nil
 }
