@@ -3,6 +3,9 @@ kind: Kustomization
 
 namespace: tas-mcp-dev
 
+components:
+  - ../../components/prometheus-operator
+
 resources:
   - ../../base
   - ingress.yaml

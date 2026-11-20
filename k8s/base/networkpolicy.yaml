@@ -12,13 +12,11 @@ spec:
   - Egress
   ingress:
   # Allow HTTP traffic
-  - from: []
-    ports:
+  - ports:
     - protocol: TCP
       port: 8080
   # Allow gRPC traffic
-  - from: []
-    ports:
+  - ports:
     - protocol: TCP
       port: 50051
   # Allow health checks from monitoring
@@ -37,23 +35,63 @@ spec:
     ports:
     - protocol: TCP
       port: 8082
+  # The MCP servers reach the federation API on 8082. Patched into the live
+  # policy by hand on 2026-02-06 and never committed; carried here so that
+  # applying this tree does not cut them off.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: tas-mcp-servers
+    ports:
+    - protocol: TCP
+      port: 8082
+  # Also patched in on 2026-02-06: 8082 from any source. It makes the three
+  # rules above redundant; kept as-is so this commit changes nothing live.
+  # Narrowing it is a separate decision.
+  - ports:
+    - protocol: TCP
+      port: 8082
   egress:
   # Allow DNS resolution
-  - to: []
-    ports:
+  - ports:
     - protocol: UDP
       port: 53
     - protocol: TCP
       port: 53
   # Allow HTTPS for forwarding (if configured)
-  - to: []
-    ports:
+  - ports:
     - protocol: TCP
       port: 443
   # Allow HTTP for forwarding (if configured)
-  - to: []
-    ports:
+  - ports:
     - protocol: TCP
       port: 80
     - protocol: TCP
       port: 8080
+  # MCP-14: the federated MCP servers, on whatever port each one serves
+  # (8000, 8080, 8087, 8091, 8092 today). Allowed by namespace rather than by
+  # port list, because a port list is what broke: only dbhub's 8080 happened
+  # to match the rule above, so 11 of 12 servers were unreachable.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tas-mcp-servers
+  # MCP-14: the federation registry (FEDERATION_REDIS_URL, redis-shared) and
+  # payload reduction (REDUCTION_OLLAMA_URL, ollama), both in tas-shared.
+  # Scoped by namespace and port only. A podSelector here would be rewritten:
+  # kustomize's commonLabels applies to NetworkPolicy peer podSelectors too,
+  # and turned `app: redis-shared` into `app: tas-mcp`, matching nothing.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tas-shared
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tas-shared
+    ports:
+    - protocol: TCP
+      port: 11434

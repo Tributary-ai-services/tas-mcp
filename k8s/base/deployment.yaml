@@ -44,8 +44,6 @@ spec:
           containerPort: 8083
           protocol: TCP
         env:
-        - name: VERSION
-          value: "1.0.0"
         # Federation registry store. This was applied straight to the cluster
         # and had never been in this manifest, so `kubectl apply -k` would
         # have dropped it and sent the federation registry back to in-memory.
@@ -59,6 +57,9 @@ spec:
             secretKeyRef:
               name: redis-shared-auth
               key: password
+        # Order matches the live object, which lists VERSION here.
+        - name: VERSION
+          value: "1.0.0"
         - name: FEDERATION_REGISTRY
           value: "redis"
         - name: FEDERATION_REDIS_URL
