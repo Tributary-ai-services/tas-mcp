@@ -15,7 +15,7 @@
 FROM golang:1.24-bookworm AS builder
 
 # Build arguments
-ARG VERSION=1.1.0
+ARG VERSION=1.2.0
 ARG BUILD_DATE
 ARG VCS_REF
 
@@ -56,7 +56,7 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
 FROM debian:bookworm-slim
 
 # Build arguments (for labels)
-ARG VERSION=1.1.0
+ARG VERSION=1.2.0
 ARG BUILD_DATE
 ARG VCS_REF
 

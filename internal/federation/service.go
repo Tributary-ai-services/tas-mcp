@@ -101,6 +101,7 @@ func (s *GenericService) Invoke(ctx context.Context, request *MCPRequest) (*MCPR
 
 	// Call the service client
 	result, err := s.client.Call(ctx, request.Method, request.Params)
+	recordUpstream(s.server.ID, err)
 	if err != nil {
 		return &MCPResponse{
 			ID: request.ID,
@@ -249,7 +250,7 @@ func (c *HTTPClient) Call(ctx context.Context, method string, params map[string]
 		return nil, fmt.Errorf("read %s response: %w", c.server.ID, err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("%s returned %s: %s", c.server.ID, resp.Status,
+		return nil, fmt.Errorf("%s returned %s: %w: %s", c.server.ID, resp.Status, errUpstreamStatus,
 			string(data[:min(len(data), errBodyPreview)]))
 	}
 	if len(data) == 0 {

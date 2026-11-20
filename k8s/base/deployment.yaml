@@ -59,7 +59,7 @@ spec:
               key: password
         # Order matches the live object, which lists VERSION here.
         - name: VERSION
-          value: "1.0.0"
+          value: "1.2.0"
         - name: FEDERATION_REGISTRY
           value: "redis"
         - name: FEDERATION_REDIS_URL

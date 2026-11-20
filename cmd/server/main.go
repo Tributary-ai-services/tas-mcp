@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
@@ -296,6 +298,10 @@ func setupHealthServer(
 			response["uptime"],
 			response["stats"])
 	})
+
+	// Prometheus scrape target (MCP-16). The pod annotations have always
+	// pointed at :8083/metrics; until now nothing was served there.
+	healthMux.Handle("/metrics", promhttp.Handler())
 
 	healthMux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
