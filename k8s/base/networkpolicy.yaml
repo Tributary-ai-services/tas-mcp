@@ -68,3 +68,30 @@ spec:
       port: 80
     - protocol: TCP
       port: 8080
+  # MCP-14: the federated MCP servers, on whatever port each one serves
+  # (8000, 8080, 8087, 8091, 8092 today). Allowed by namespace rather than by
+  # port list, because a port list is what broke: only dbhub's 8080 happened
+  # to match the rule above, so 11 of 12 servers were unreachable.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tas-mcp-servers
+  # MCP-14: the federation registry (FEDERATION_REDIS_URL, redis-shared) and
+  # payload reduction (REDUCTION_OLLAMA_URL, ollama), both in tas-shared.
+  # Scoped by namespace and port only. A podSelector here would be rewritten:
+  # kustomize's commonLabels applies to NetworkPolicy peer podSelectors too,
+  # and turned `app: redis-shared` into `app: tas-mcp`, matching nothing.
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tas-shared
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tas-shared
+    ports:
+    - protocol: TCP
+      port: 11434
