@@ -1,0 +1,8 @@
+# The VerticalPodAutoscaler CRD (autoscaling.k8s.io) is not installed on the
+# production cluster, so this is opt-in: add `components: [vpa]` to the prod
+# overlay once it is. Listing it unconditionally made the whole tree
+# undiffable (`kubectl diff` exit 2).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - vpa.yaml

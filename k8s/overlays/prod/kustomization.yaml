@@ -6,8 +6,6 @@ namespace: tas-mcp-prod
 resources:
   - ../../base
   - hpa.yaml
-  - vpa.yaml
-  - ingress.yaml
 
 namePrefix: prod-
 
@@ -18,6 +16,19 @@ replicas:
   - name: tas-mcp
     count: 5
 
+# Optional, needs CRDs this cluster lacks (see each component):
+# components:
+#   - ../../components/prometheus-operator
+#   - vpa
+#
+# No Ingress: production has none. The one listed here until 2026-11-19 named
+# api/grpc.tas-mcp.com with letsencrypt-prod, a domain this cluster does not
+# serve; applying it would have published the proxy and sent cert-manager
+# after a certificate it cannot get.
+
 images:
-  - name: tas-mcp
-    newTag: v1.0.0
+  # The base image reference is the full registry path, so the old
+  # `name: tas-mcp` entry never matched and prod rendered `:latest`.
+  # This is the tag production runs (digest sha256:e2dffe1a...).
+  - name: registry-api.tas.scharber.com/tas-mcp
+    newTag: obs-20260817

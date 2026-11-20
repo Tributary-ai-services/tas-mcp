@@ -12,13 +12,11 @@ spec:
   - Egress
   ingress:
   # Allow HTTP traffic
-  - from: []
-    ports:
+  - ports:
     - protocol: TCP
       port: 8080
   # Allow gRPC traffic
-  - from: []
-    ports:
+  - ports:
     - protocol: TCP
       port: 50051
   # Allow health checks from monitoring
@@ -37,22 +35,35 @@ spec:
     ports:
     - protocol: TCP
       port: 8082
+  # The MCP servers reach the federation API on 8082. Patched into the live
+  # policy by hand on 2026-02-06 and never committed; carried here so that
+  # applying this tree does not cut them off.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: tas-mcp-servers
+    ports:
+    - protocol: TCP
+      port: 8082
+  # Also patched in on 2026-02-06: 8082 from any source. It makes the three
+  # rules above redundant; kept as-is so this commit changes nothing live.
+  # Narrowing it is a separate decision.
+  - ports:
+    - protocol: TCP
+      port: 8082
   egress:
   # Allow DNS resolution
-  - to: []
-    ports:
+  - ports:
     - protocol: UDP
       port: 53
     - protocol: TCP
       port: 53
   # Allow HTTPS for forwarding (if configured)
-  - to: []
-    ports:
+  - ports:
     - protocol: TCP
       port: 443
   # Allow HTTP for forwarding (if configured)
-  - to: []
-    ports:
+  - ports:
     - protocol: TCP
       port: 80
     - protocol: TCP

@@ -1,0 +1,8 @@
+# Resources that need the Prometheus Operator CRDs (monitoring.coreos.com).
+# The production cluster does not have them installed, and `kubectl diff`
+# exits 2 with no output on a kind it does not know, which hides every other
+# difference in the tree. Include this component only where the CRDs exist.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - servicemonitor.yaml
