@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // Prometheus metrics for the federation layer (MCP-16).
@@ -38,14 +39,14 @@ var (
 	// UpstreamRequests counts every call the proxy makes to a federated
 	// server, by outcome (ok|error). It exists so an error count can be read
 	// as a ratio, and so "zero errors" can be told apart from "zero traffic".
-	UpstreamRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
+	UpstreamRequests = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "tas_mcp",
 		Name:      "upstream_requests_total",
 		Help:      "Calls from the MCP proxy to a federated server, by outcome.",
 	}, []string{"server_id", "outcome"})
 
 	// UpstreamErrors counts failed calls to a federated server, by kind.
-	UpstreamErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+	UpstreamErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "tas_mcp",
 		Name:      "upstream_errors_total",
 		Help:      "Failed calls from the MCP proxy to a federated server, by error kind.",
@@ -53,16 +54,12 @@ var (
 
 	// RegistryErrors counts failed registry operations (Redis in production).
 	// ErrServerNotFound is a normal answer, not an error, and is not counted.
-	RegistryErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+	RegistryErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "tas_mcp",
 		Name:      "registry_errors_total",
 		Help:      "Failed MCP server registry operations, by operation and error kind.",
 	}, []string{"op", "kind"})
 )
-
-func init() {
-	prometheus.MustRegister(UpstreamRequests, UpstreamErrors, RegistryErrors)
-}
 
 // classifyError maps an error to one of the ErrKind constants.
 func classifyError(err error) string {
