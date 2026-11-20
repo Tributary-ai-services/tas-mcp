@@ -51,6 +51,17 @@ spec:
   - ports:
     - protocol: TCP
       port: 8082
+  # Prometheus (prometheus-shared, namespace tas-shared) scrapes /metrics on
+  # the health port 8083 (MCP-16). With no rule for 8083 every scrape was
+  # refused, so the pod's prometheus.io annotations never worked. Scoped by
+  # namespace and port only: commonLabels would rewrite a podSelector here.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tas-shared
+    ports:
+    - protocol: TCP
+      port: 8083
   egress:
   # Allow DNS resolution
   - ports:
