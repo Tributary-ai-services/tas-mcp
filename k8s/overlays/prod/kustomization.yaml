@@ -29,6 +29,7 @@ replicas:
 images:
   # The base image reference is the full registry path, so the old
   # `name: tas-mcp` entry never matched and prod rendered `:latest`.
-  # This is the tag production runs (digest sha256:e2dffe1a...).
+  # 1.2.0 (MCP-16) replaces obs-20260817 (digest sha256:e2dffe1a...),
+  # a bare date tag with no revision label.
   - name: registry-api.tas.scharber.com/tas-mcp
-    newTag: obs-20260817
+    newTag: 1.2.0
