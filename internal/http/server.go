@@ -13,6 +13,7 @@ import (
 	"github.com/tributary-ai-services/tas-mcp/internal/federation"
 	"github.com/tributary-ai-services/tas-mcp/internal/forwarding"
 	grpcserver "github.com/tributary-ai-services/tas-mcp/internal/grpc"
+	"github.com/tributary-ai-services/tas-mcp/internal/identity"
 )
 
 // Constants for the HTTP server
@@ -29,6 +30,7 @@ type Server struct {
 	mcpServer         *grpcserver.MCPServer
 	forwarder         *forwarding.EventForwarder
 	federationManager federation.TASManager
+	identityResolver  *identity.Resolver
 	version           string
 	startTime         time.Time
 }
@@ -59,6 +61,13 @@ func NewServerWithFederation(
 		version:           DefaultVersion,
 		startTime:         time.Now(),
 	}
+}
+
+// SetIdentityResolver enables caller-identity resolution on the federation
+// invoke and broadcast routes (Plan #22 T.1, observe mode). Nil disables it.
+// Must be called before Handler.
+func (s *Server) SetIdentityResolver(r *identity.Resolver) {
+	s.identityResolver = r
 }
 
 // EventRequest represents the HTTP request structure for MCP events
@@ -108,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	// Federation endpoints (if federation manager is available)
 	if s.federationManager != nil {
 		federationHandlers := federation.NewHTTPHandlers(s.federationManager, s.log)
+		federationHandlers.SetIdentityResolver(s.identityResolver)
 		federationHandlers.RegisterRoutes(r)
 	}
 
