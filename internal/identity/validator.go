@@ -104,6 +104,8 @@ func (v *DashboardValidator) Validate(ctx context.Context, bearer string) (*Toke
 	if err != nil {
 		return nil, fmt.Errorf("identity: marshal: %w", err)
 	}
+	// BaseURL is operator config (AIQG_DASHBOARD_URL), never request input.
+	// #nosec G704 -- the URL is fixed at startup from config, not caller-controlled
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, v.BaseURL+validatePath, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("identity: new request: %w", err)
@@ -111,7 +113,7 @@ func (v *DashboardValidator) Validate(ctx context.Context, bearer string) (*Toke
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Internal-Auth", v.InternalAuthToken)
 
-	resp, err := v.HTTP.Do(req)
+	resp, err := v.HTTP.Do(req) // #nosec G704 -- see above: config URL, not caller input
 	if err != nil {
 		return nil, fmt.Errorf("identity: validate: %w", err)
 	}

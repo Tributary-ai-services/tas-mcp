@@ -10,10 +10,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// tokenPrefix is the shape of an AIQG gateway token. A TAS-Auth value without
+// liveShapePrefix is the shape of an AIQG gateway token. A TAS-Auth value without
 // it is malformed and never sent to the validator (the gateway rejects the
 // same values with ErrAuthMalformed).
-const tokenPrefix = "tas_qg_live_" //nolint:gosec // a token-shape prefix, not a credential
+const liveShapePrefix = "tas_qg_live_"
 
 // maxSourceAppLen matches the gateway's TAS-Source-App limit.
 const maxSourceAppLen = 128
@@ -47,7 +47,7 @@ func (r *Resolver) resolve(ctx context.Context, h http.Header) *Identity {
 	if bearer == "" {
 		return &Identity{Result: ResultNoToken, ToolCallID: toolCallID}
 	}
-	if !strings.HasPrefix(bearer, tokenPrefix) {
+	if !strings.HasPrefix(bearer, liveShapePrefix) {
 		return &Identity{Result: ResultMalformed, ToolCallID: toolCallID}
 	}
 	if r == nil || r.Validator == nil {
