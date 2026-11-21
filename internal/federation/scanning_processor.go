@@ -138,6 +138,9 @@ func (p *scanningResultProcessor) ScanResult(ctx context.Context, serverID strin
 	}
 
 	findings, anyRedacted := p.scanResultContent(ctx, resp, tier)
+	// Hand the counts to the tool-call event (T.2): the event reuses this
+	// scan's result, it never scans again.
+	observationFrom(ctx).recordScan(findings)
 	if len(findings) == 0 {
 		return resp
 	}

@@ -26,3 +26,16 @@ func TestIdentityConfig_FromEnv(t *testing.T) {
 		t.Fatalf("ttl = %v", c.Identity.CacheTTL)
 	}
 }
+
+func TestToolCallEventsConfig(t *testing.T) {
+	t.Setenv("TOOL_CALL_EVENTS_ENABLED", "")
+	if c := Load(); c.ToolCallEvents != nil {
+		t.Fatalf("tool-call events should be nil by default, got %+v", c.ToolCallEvents)
+	}
+	t.Setenv("TOOL_CALL_EVENTS_ENABLED", "true")
+	t.Setenv("AIQG_KAFKA_BROKERS", "k1:9092,k2:9092")
+	c := Load().ToolCallEvents
+	if c == nil || len(c.Brokers) != 2 || c.Topic != "tas.aiqg.events.v1" || c.BufferSize != 1024 {
+		t.Fatalf("got %+v", c)
+	}
+}

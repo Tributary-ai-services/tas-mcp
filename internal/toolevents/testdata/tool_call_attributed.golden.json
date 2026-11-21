@@ -1,0 +1,25 @@
+{
+  "tenant_id": "a689c0b2-0000-4000-8000-000000000001",
+  "token_id": "6f1d2c3b-0000-4000-8000-000000000002",
+  "owner_sub": "kc-sub-1234",
+  "user_id": "u_42",
+  "agent_id": "research-agent",
+  "source_app": "claude-code",
+  "flow_id": "flow-9",
+  "step_id": "step-3",
+  "tool_call_id": "toolu_01ABCdef",
+  "tool_name": "create_napkin",
+  "server_id": "napkin-mcp",
+  "observed_by": "proxy",
+  "outcome": "ok",
+  "duration_ms": 842,
+  "result_bytes": 4097,
+  "result_tokens_est": 1025,
+  "reduced_bytes": 1200,
+  "findings": {
+    "email": 2,
+    "us_ssn": 1
+  },
+  "scan_skipped": false,
+  "occurred_at": "2026-11-21T16:04:05.123Z"
+}

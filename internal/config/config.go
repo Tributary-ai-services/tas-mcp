@@ -52,12 +52,33 @@ type Config struct {
 	BufferSize      int
 	MaxConnections  int
 	Version         string
-	Forwarding      *ForwardingConfig `json:"forwarding,omitempty"`
-	Reduction       *ReductionConfig  `json:"reduction,omitempty"`
-	Scanning        *ScanningConfig   `json:"scanning,omitempty"`
-	Federation      *FederationConfig `json:"federation,omitempty"`
-	Identity        *IdentityConfig   `json:"identity,omitempty"`
+	Forwarding      *ForwardingConfig     `json:"forwarding,omitempty"`
+	Reduction       *ReductionConfig      `json:"reduction,omitempty"`
+	Scanning        *ScanningConfig       `json:"scanning,omitempty"`
+	Federation      *FederationConfig     `json:"federation,omitempty"`
+	Identity        *IdentityConfig       `json:"identity,omitempty"`
+	ToolCallEvents  *ToolCallEventsConfig `json:"tool_call_events,omitempty"`
 }
+
+// ToolCallEventsConfig configures the com.tas.aiqg.tool_call.v1 publisher
+// (Plan #22 T.2). Nil (the default, TOOL_CALL_EVENTS_ENABLED unset) publishes
+// nothing; the tas_mcp_tool_call_seconds histogram is recorded regardless.
+type ToolCallEventsConfig struct {
+	Enabled bool `json:"enabled"`
+	// Brokers and Topic reuse tas-llm-router's AIQG_KAFKA_* names, since both
+	// publish to the same AIQG topic.
+	Brokers []string `json:"brokers,omitempty"`
+	Topic   string   `json:"topic,omitempty"`
+	// BufferSize bounds events waiting for Kafka; past it events are dropped
+	// (and counted) rather than slowing a tool call.
+	BufferSize int `json:"buffer_size,omitempty"`
+}
+
+// Tool-call event defaults.
+const (
+	DefaultToolCallEventsTopic  = "tas.aiqg.events.v1"
+	DefaultToolCallEventsBuffer = 1024
+)
 
 // IdentityConfig configures caller-identity resolution at the federation proxy
 // (Plan #22 T.1). Nil (the default, IDENTITY_ENABLED unset) means the proxy
@@ -275,6 +296,16 @@ func Load() *Config {
 	// Load caller-identity configuration if enabled (Plan #22 T.1)
 	if getEnvAsBool("IDENTITY_ENABLED", false) {
 		config.Identity = loadIdentityConfig()
+	}
+
+	// Load tool-call event publishing if enabled (Plan #22 T.2)
+	if getEnvAsBool("TOOL_CALL_EVENTS_ENABLED", false) {
+		config.ToolCallEvents = &ToolCallEventsConfig{
+			Enabled:    true,
+			Brokers:    getEnvAsSlice("AIQG_KAFKA_BROKERS", []string{}),
+			Topic:      getEnv("AIQG_KAFKA_TOPIC", DefaultToolCallEventsTopic),
+			BufferSize: getEnvAsInt("TOOL_CALL_EVENTS_BUFFER", DefaultToolCallEventsBuffer),
+		}
 	}
 
 	// Load federation registry configuration if a backend is chosen

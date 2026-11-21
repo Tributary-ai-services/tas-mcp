@@ -157,12 +157,15 @@ func (h *HTTPHandlers) handleInvokeServer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Set request ID if not provided
+	ctx := h.withIdentity(r)
+	// Set request ID if not provided, and say so: the tool-call event must
+	// not use a proxy-minted id as a join key.
 	if request.ID == "" {
 		request.ID = generateRequestID()
+		ctx = WithGeneratedRequestID(ctx)
 	}
 
-	response, err := h.manager.InvokeServer(h.withIdentity(r), serverID, &request)
+	response, err := h.manager.InvokeServer(ctx, serverID, &request)
 	if err != nil {
 		h.logger.Error("Failed to invoke server",
 			zap.String("server_id", serverID),
