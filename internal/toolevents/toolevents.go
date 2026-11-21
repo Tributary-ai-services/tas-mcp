@@ -55,6 +55,10 @@ const (
 // Timescale table (aether-shared 009_tool_call.sql) and the Spark job: change
 // them only together. Identity fields are null when unknown — always present,
 // never omitted, so every row has the same shape.
+//
+// findings is Gatekeeper pattern id → count, e.g. {"pii-email": 2,
+// "cred-api-key": 1}: the categorized ids the gateway uses for
+// event_metrics.tags, category = prefix before the first "-".
 type Data struct {
 	TenantID        *string        `json:"tenant_id"`
 	TokenID         *string        `json:"token_id"`

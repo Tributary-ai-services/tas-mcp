@@ -17,8 +17,8 @@
   "result_tokens_est": 1025,
   "reduced_bytes": 1200,
   "findings": {
-    "email": 2,
-    "us_ssn": 1
+    "pii-email": 2,
+    "pii-ssn": 1
   },
   "scan_skipped": false,
   "occurred_at": "2026-11-21T16:04:05.123Z"

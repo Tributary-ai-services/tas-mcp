@@ -43,9 +43,12 @@ type ToolCallRecord struct {
 	// ReducedBytes is how many bytes reduce-at-source removed (0 if it did not
 	// run). The pre-reduction size is ResultBytes + ReducedBytes.
 	ReducedBytes int
-	// Findings is the G2 boundary scan's finding count per pattern id (e.g.
-	// "email": 2). Taken from the one scan the boundary already does; never
-	// the matched values. Empty, never nil.
+	// Findings is the G2 boundary scan's finding count per Gatekeeper pattern
+	// id, e.g. "pii-email": 2. The ids are already categorized — the category
+	// is the prefix before the first "-" (pii, cred, injection, aiqg), the
+	// same ids the gateway writes to event_metrics.tags — and are passed
+	// through verbatim. Taken from the one scan the boundary already does;
+	// never the matched values. Empty, never nil.
 	Findings map[string]int
 	// ScanSkipped is true when the G2 scanner did not scan this result:
 	// scanning disabled, or an error response with nothing to scan.

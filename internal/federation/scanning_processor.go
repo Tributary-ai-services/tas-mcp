@@ -32,7 +32,7 @@ const (
 // (Gatekeeper's contract — "never log actual PII"). It is the federation-local
 // projection of scan.Finding.
 type ScanFinding struct {
-	PatternID   string // "email", "ssn", "aws_access_key", "sql_injection"
+	PatternID   string // Gatekeeper matcher id, already categorized: "pii-email", "pii-ssn", "cred-aws-access-key", "injection-sql"
 	PatternType string // "pii" | "credential" | "injection"
 	Severity    string
 	Preview     string // masked, e.g. "j***@***.com" — never the raw value

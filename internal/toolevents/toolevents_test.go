@@ -33,7 +33,7 @@ func attributedRecord() federation.ToolCallRecord {
 		Duration:     842 * time.Millisecond,
 		ResultBytes:  4097,
 		ReducedBytes: 1200,
-		Findings:     map[string]int{"email": 2, "us_ssn": 1},
+		Findings:     map[string]int{"pii-email": 2, "pii-ssn": 1},
 		ScanSkipped:  false,
 		OccurredAt:   occurred,
 		Identity: &identity.Identity{
