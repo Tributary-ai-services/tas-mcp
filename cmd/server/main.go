@@ -27,6 +27,7 @@ import (
 	"github.com/tributary-ai-services/tas-mcp/internal/forwarding"
 	grpcserver "github.com/tributary-ai-services/tas-mcp/internal/grpc"
 	httpserver "github.com/tributary-ai-services/tas-mcp/internal/http"
+	"github.com/tributary-ai-services/tas-mcp/internal/identity"
 	"github.com/tributary-ai-services/tas-mcp/internal/logger"
 	"github.com/tributary-ai-services/tas-mcp/internal/reduction"
 	"github.com/tributary-ai-services/tas-mcp/internal/scanning"
@@ -223,6 +224,28 @@ func setupGRPCServer(
 	return grpcServer, mcpServer
 }
 
+// buildIdentityResolver returns the caller-identity resolver for the federation
+// routes (Plan #22 T.1), or nil when IDENTITY_ENABLED is unset — then the proxy
+// reads no TAS-Auth and calls no validator. Enabled without a dashboard URL or
+// internal-auth token still resolves headers, but every token is recorded
+// validator_unconfigured (unattributed); that is logged at Warn, not fatal.
+func buildIdentityResolver(cfg *config.Config, zapLogger *zap.Logger) *identity.Resolver {
+	if cfg.Identity == nil || !cfg.Identity.Enabled {
+		return nil
+	}
+	r := &identity.Resolver{Logger: zapLogger}
+	v, err := identity.NewDashboardValidator(cfg.Identity.DashboardURL, cfg.Identity.DashboardInternalAuthToken)
+	if err != nil {
+		zapLogger.Warn("caller identity: validator not configured; every call will be unattributed", zap.Error(err))
+		return r
+	}
+	r.Validator = identity.NewCachingValidator(v, cfg.Identity.CacheTTL)
+	zapLogger.Info("caller identity: enabled (observe mode)",
+		zap.String("dashboard_url", cfg.Identity.DashboardURL),
+		zap.Duration("cache_ttl", cfg.Identity.CacheTTL))
+	return r
+}
+
 func setupHTTPServer(
 	cfg *config.Config,
 	zapLogger *zap.Logger,
@@ -233,6 +256,7 @@ func setupHTTPServer(
 	// Create HTTP server with the federation gateway wired in, so tool-call
 	// requests reach Manager.InvokeServer (the reduce-at-source choke point).
 	httpSrv := httpserver.NewServerWithFederation(zapLogger, mcpServer, forwarder, federationManager)
+	httpSrv.SetIdentityResolver(buildIdentityResolver(cfg, zapLogger))
 	httpServerInstance := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:      httpSrv.Handler(),

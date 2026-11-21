@@ -1,6 +1,7 @@
 package federation
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,12 +9,35 @@ import (
 
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
+
+	"github.com/tributary-ai-services/tas-mcp/internal/identity"
 )
 
 // HTTPHandlers provides HTTP endpoints for federation management
 type HTTPHandlers struct {
 	manager TASManager
 	logger  *zap.Logger
+
+	// identity resolves the caller (TAS-Auth + baggage) on invoke/broadcast.
+	// Nil = identity disabled: no resolution, no validator call, and the
+	// request context carries no Identity (Plan #22 T.1).
+	identity *identity.Resolver
+}
+
+// SetIdentityResolver installs caller-identity resolution (observe mode). A nil
+// resolver turns it off.
+func (h *HTTPHandlers) SetIdentityResolver(r *identity.Resolver) {
+	h.identity = r
+}
+
+// withIdentity resolves the caller into the request context. Observe mode: it
+// never rejects; an unresolvable caller is carried as unattributed.
+func (h *HTTPHandlers) withIdentity(r *http.Request) context.Context {
+	ctx := r.Context()
+	if h.identity == nil {
+		return ctx
+	}
+	return identity.WithIdentity(ctx, h.identity.Resolve(ctx, r.Header))
 }
 
 // NewHTTPHandlers creates new HTTP handlers for federation
@@ -138,7 +162,7 @@ func (h *HTTPHandlers) handleInvokeServer(w http.ResponseWriter, r *http.Request
 		request.ID = generateRequestID()
 	}
 
-	response, err := h.manager.InvokeServer(r.Context(), serverID, &request)
+	response, err := h.manager.InvokeServer(h.withIdentity(r), serverID, &request)
 	if err != nil {
 		h.logger.Error("Failed to invoke server",
 			zap.String("server_id", serverID),
@@ -188,7 +212,7 @@ func (h *HTTPHandlers) handleBroadcast(w http.ResponseWriter, r *http.Request) {
 		request.ID = generateRequestID()
 	}
 
-	responses, err := h.manager.BroadcastRequest(r.Context(), &request)
+	responses, err := h.manager.BroadcastRequest(h.withIdentity(r), &request)
 	if err != nil {
 		h.logger.Error("Failed to broadcast request",
 			zap.String("method", request.Method),

@@ -56,7 +56,29 @@ type Config struct {
 	Reduction       *ReductionConfig  `json:"reduction,omitempty"`
 	Scanning        *ScanningConfig   `json:"scanning,omitempty"`
 	Federation      *FederationConfig `json:"federation,omitempty"`
+	Identity        *IdentityConfig   `json:"identity,omitempty"`
 }
+
+// IdentityConfig configures caller-identity resolution at the federation proxy
+// (Plan #22 T.1). Nil (the default, IDENTITY_ENABLED unset) means the proxy
+// reads no TAS-Auth and makes no validator calls — the deploy is inert.
+//
+// Mode is observe only: an unknown or missing token is still served, recorded
+// unattributed; a validator outage is fail-open.
+type IdentityConfig struct {
+	Enabled bool `json:"enabled"`
+	// DashboardURL is aiqg-dashboard-be's base URL (everything before
+	// /internal/auth/validate). Same variable name as tas-llm-router.
+	DashboardURL string `json:"dashboard_url,omitempty"`
+	// DashboardInternalAuthToken is the shared secret dashboard-be requires on
+	// /internal/*. Same variable name as tas-llm-router. Never logged.
+	DashboardInternalAuthToken string `json:"-"`
+	// CacheTTL is how long a validator answer is reused (default 60s).
+	CacheTTL time.Duration `json:"cache_ttl,omitempty"`
+}
+
+// DefaultIdentityCacheTTL is the validator cache TTL (design §9.5).
+const DefaultIdentityCacheTTL = 60 * time.Second
 
 // ScanningConfig configures Gatekeeper boundary scanning of federated tool
 // results (docs/AIQG-GATEKEEPER-INTEGRATION.md §4, tas-llm-router#101 G2). Nil
@@ -250,12 +272,27 @@ func Load() *Config {
 		config.Scanning = loadScanningConfig()
 	}
 
+	// Load caller-identity configuration if enabled (Plan #22 T.1)
+	if getEnvAsBool("IDENTITY_ENABLED", false) {
+		config.Identity = loadIdentityConfig()
+	}
+
 	// Load federation registry configuration if a backend is chosen
 	if getEnv("FEDERATION_REGISTRY", "") != "" {
 		config.Federation = loadFederationConfig()
 	}
 
 	return config
+}
+
+// loadIdentityConfig loads caller-identity configuration from environment.
+func loadIdentityConfig() *IdentityConfig {
+	return &IdentityConfig{
+		Enabled:                    true,
+		DashboardURL:               getEnv("AIQG_DASHBOARD_URL", ""),
+		DashboardInternalAuthToken: getEnv("AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN", ""),
+		CacheTTL:                   getEnvAsDuration("IDENTITY_CACHE_TTL", DefaultIdentityCacheTTL),
+	}
 }
 
 // loadFederationConfig loads federation registry configuration from environment
