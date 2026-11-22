@@ -114,6 +114,7 @@ func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Man
 	scanner := scanning.Install(mgr, scanning.FromConfig(cfg.Scanning), zapLogger)
 
 	installTenantServers(mgr, cfg, zapLogger)
+	installConnectionInjection(mgr, cfg, zapLogger)
 
 	// Start the manager lifecycle (health monitoring + the registry Watch that
 	// converges local services when another replica unregisters a server).
@@ -160,6 +161,36 @@ func installTenantServers(mgr *federation.Manager, cfg *config.Config, zapLogger
 	zapLogger.Info("tenant servers: enabled",
 		zap.Int("egress_tenants", len(c.EgressAllowlist)),
 		zap.Strings("cluster_namespaces", namespaces))
+}
+
+// installConnectionInjection turns on per-tenant connection injection (Plan
+// #22 C.4) when MCP_CONNECTION_INJECTION is set. It needs caller identity (the
+// tenant comes from the TAS-Auth token) and the dashboard URL and token;
+// without them (MCP_CONNECTIONS_RESOLVE_TOKEN) it stays off and says so. Install after installTenantServers,
+// so an OAuth token URL is checked against the same egress rules.
+func installConnectionInjection(mgr *federation.Manager, cfg *config.Config, zapLogger *zap.Logger) {
+	c := cfg.ConnectionInjection
+	if c == nil || !c.Enabled {
+		return
+	}
+	if cfg.Identity == nil || !cfg.Identity.Enabled {
+		zapLogger.Warn("connection injection: IDENTITY_ENABLED is off, so no caller has a tenant; injection stays off")
+		return
+	}
+	r, err := federation.NewDashboardConnectionResolver(c.DashboardURL, c.ResolveToken)
+	if err != nil {
+		zapLogger.Warn("connection injection: resolver not configured; injection stays off", zap.Error(err))
+		return
+	}
+	mgr.SetConnectionInjector(&federation.ConnectionInjector{
+		Resolver: federation.NewCachingConnectionResolver(r, c.CacheTTL),
+		Policy:   mgr.TenantPolicy(),
+		Declared: c.Servers,
+	})
+	zapLogger.Info("connection injection: enabled",
+		zap.String("dashboard_url", c.DashboardURL),
+		zap.Any("declared_servers", c.Servers),
+		zap.Duration("cache_ttl", c.CacheTTL))
 }
 
 // buildFederationRegistry selects the registry backend from config. Default is

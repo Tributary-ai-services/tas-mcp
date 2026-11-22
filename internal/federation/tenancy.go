@@ -154,7 +154,19 @@ func (p *TenantPolicy) checkEgress(tenant, endpoint string) error {
 	if u.User != nil {
 		return fmt.Errorf("%w: endpoint must not carry credentials", ErrEgressDenied)
 	}
-	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	return p.checkHost(tenant, u.Hostname(), scheme == schemeHTTPS, true)
+}
+
+// checkHost is the host half of Q13, shared by tenant server endpoints, OAuth
+// token URLs and database DSNs (Plan #22 C.4): an in-cluster host must be a
+// service in an allowed namespace; anything else must be on the tenant's
+// allowlist (and use TLS when needTLS). An IP literal counts as outside the
+// cluster, so it passes only when it is on the allowlist itself.
+func (p *TenantPolicy) checkHost(tenant, rawHost string, tls, needTLS bool) error {
+	host := strings.ToLower(strings.TrimSuffix(rawHost, "."))
+	if host == "" {
+		return fmt.Errorf("%w: no host", ErrEgressDenied)
+	}
 
 	if ns, ok := clusterNamespace(host); ok {
 		for _, allowed := range p.clusterNamespaces() {
@@ -168,11 +180,42 @@ func (p *TenantPolicy) checkEgress(tenant, endpoint string) error {
 	if !strings.Contains(host, ".") && net.ParseIP(host) == nil {
 		return fmt.Errorf("%w: host %q is a bare name; use <service>.<namespace>.svc", ErrEgressDenied, host)
 	}
-	if scheme != schemeHTTPS {
+	if isClusterInternal(host) {
+		return fmt.Errorf("%w: host %q is cluster-internal; use <service>.<namespace>.svc in an allowed namespace", ErrEgressDenied, host)
+	}
+	if needTLS && !tls {
 		return fmt.Errorf("%w: a tenant server outside the cluster must use https", ErrEgressDenied)
 	}
 	if !hostAllowed(host, p.Egress[tenant]) {
 		return fmt.Errorf("%w: host %q is not on this tenant's egress allowlist (MCP_TENANT_EGRESS_ALLOWLIST)", ErrEgressDenied, host)
+	}
+	return nil
+}
+
+// isClusterInternal reports a host that names cluster infrastructure in a form
+// clusterNamespace does not accept (a pod or headless name under .svc,
+// anything under .cluster.local, localhost).
+func isClusterInternal(host string) bool {
+	return host == "localhost" || strings.HasSuffix(host, ".localhost") ||
+		strings.HasSuffix(host, ".svc") ||
+		strings.HasSuffix(host, ".cluster.local") || strings.HasSuffix(host, ".internal")
+}
+
+// basicHostCheck is the egress rule when the tenant registry is off (no
+// allowlist to consult): a public DNS name only. IP literals, bare names and
+// cluster-internal names are refused, so a tenant-supplied URL cannot point
+// the proxy at the cluster or the node.
+func basicHostCheck(rawHost string) error {
+	host := strings.ToLower(strings.TrimSuffix(rawHost, "."))
+	switch {
+	case host == "":
+		return fmt.Errorf("%w: no host", ErrEgressDenied)
+	case net.ParseIP(strings.Trim(host, "[]")) != nil:
+		return fmt.Errorf("%w: IP literal %q is not allowed", ErrEgressDenied, host)
+	case !strings.Contains(host, "."):
+		return fmt.Errorf("%w: bare host name %q is not allowed", ErrEgressDenied, host)
+	case isClusterInternal(host):
+		return fmt.Errorf("%w: cluster-internal host %q is not allowed", ErrEgressDenied, host)
 	}
 	return nil
 }

@@ -45,6 +45,13 @@ type MCPServer struct {
 	// Enabled is false for a server that is registered but switched off: it is
 	// not listed to callers, not invoked and not probed. Nil = enabled.
 	Enabled *bool `json:"enabled,omitempty"`
+	// ConnectionKind is the per-tenant connection kind this server takes
+	// (Plan #22 C.4): header, oauth_client_credentials or database_dsn. Empty
+	// = none declared (MCP_CONNECTION_SERVERS can still declare one for a
+	// platform server). A server that takes connections refuses a call whose
+	// caller could not be checked (validator outage), and a database_dsn
+	// server never receives a caller-supplied DSN argument.
+	ConnectionKind string `json:"connection_kind,omitempty"`
 
 	Status      ServerStatus      `json:"status"`
 	HealthCheck HealthCheckConfig `json:"health_check"`

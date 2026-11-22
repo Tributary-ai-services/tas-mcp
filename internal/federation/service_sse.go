@@ -85,6 +85,8 @@ func (c *SSEClient) Call(ctx context.Context, method string, params map[string]i
 	if err := c.authManager.AddAuthentication(req, c.server.ID, c.server.Auth); err != nil {
 		return nil, fmt.Errorf("apply auth for %s: %w", c.server.ID, err)
 	}
+	// A tenant's connection (Plan #22 C.4) replaces the server's own auth.
+	applyCallHeaders(ctx, req)
 
 	c.logger.Debug("Proxying MCP call (streamable)",
 		zap.String("server_id", c.server.ID),
@@ -103,7 +105,7 @@ func (c *SSEClient) Call(ctx context.Context, method string, params map[string]i
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("%s returned %s: %w: %s", c.server.ID, resp.Status, &upstreamStatusError{code: resp.StatusCode},
-			string(data[:min(len(data), errBodyPreview)]))
+			bodyPreview(ctx, data))
 	}
 
 	rpc, err := parseJSONRPCResponse(data)
