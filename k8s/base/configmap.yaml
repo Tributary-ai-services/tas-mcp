@@ -35,3 +35,15 @@ data:
   # (operator 0.4.0 and the dashboard reconcile send it); each caller sees
   # platform servers plus its own tenant's, by the resolved token only.
   MCP_TENANT_SERVERS: "true"
+  # Plan #22 C.4: per-tenant connection injection. On each tools/call by an
+  # attributed caller the proxy resolves that tenant's stored connection from
+  # aiqg-dashboard-be (/internal/mcp/connections/resolve, token in Secret
+  # mcp-connections-resolve-token) and injects it; cached 60 s.
+  # postgres-mcp, not dbhub: dbhub is stock bytebase/dbhub with its DSN in its
+  # own config and never reads _connection; postgres-mcp runs the TAS bridge,
+  # which takes _connection per call (what aether-be injects today) and keys
+  # its sessions by tenant + full connection (SEC-37). Egress stays at the
+  # defaults on both sides (in-cluster hosts in tas-mcp-servers only, no
+  # external hosts), so the two allowlists match.
+  MCP_CONNECTION_INJECTION: "true"
+  MCP_CONNECTION_SERVERS: "postgres-mcp=database_dsn"

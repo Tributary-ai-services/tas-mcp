@@ -80,6 +80,12 @@ spec:
             secretKeyRef:
               name: tas-mcp-admin-token
               key: token
+        # Plan #22 C.4: opens aiqg-dashboard-be's connection resolver only.
+        - name: MCP_CONNECTIONS_RESOLVE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: mcp-connections-resolve-token
+              key: token
         envFrom:
         - configMapRef:
             name: tas-mcp-config
