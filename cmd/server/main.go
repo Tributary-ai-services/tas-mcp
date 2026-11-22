@@ -115,6 +115,8 @@ func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Man
 
 	installTenantServers(mgr, cfg, zapLogger)
 	installConnectionInjection(mgr, cfg, zapLogger)
+	// Independent of the install above: if injection stayed off, these fail closed.
+	mgr.SetConnectionRequired(cfg.ConnectionRequiredServers)
 
 	// Start the manager lifecycle (health monitoring + the registry Watch that
 	// converges local services when another replica unregisters a server).
