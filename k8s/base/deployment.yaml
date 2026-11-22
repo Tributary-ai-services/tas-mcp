@@ -64,6 +64,14 @@ spec:
           value: "redis"
         - name: FEDERATION_REDIS_URL
           value: "redis://:$(REDIS_PASSWORD)@redis-shared.tas-shared.svc.cluster.local:6379/0"
+        # Plan #22 T.1: the service token aiqg-dashboard-be's
+        # /internal/auth/validate requires (same value as the router's). The
+        # Secret is created by hand from llm-router-secret, never committed.
+        - name: AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aiqg-dashboard-internal-auth
+              key: AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN
         envFrom:
         - configMapRef:
             name: tas-mcp-config
