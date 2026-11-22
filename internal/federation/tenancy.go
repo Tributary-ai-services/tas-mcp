@@ -15,7 +15,7 @@ import (
 // AdminTokenHeader carries MCP_ADMIN_TOKEN on the federation write routes
 // (register, update, delete) when MCP_TENANT_SERVERS is on. A request that
 // carries it on a read route also sees every row, every tenant's included.
-const AdminTokenHeader = "TAS-MCP-Admin-Token" //nolint:gosec // a header name, not a credential
+const AdminTokenHeader = "TAS-MCP-Admin-Token" // #nosec G101 -- a header name, not a credential
 
 // Tenancy errors. The HTTP handlers map them to status codes (statusFor).
 var (
