@@ -6,7 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
+
+	"github.com/tributary-ai-services/tas-mcp/internal/identity"
 )
 
 const (
@@ -53,6 +56,11 @@ type Manager struct {
 	// TierExternal content on its way into an LLM prompt. Nil until
 	// SetScanner installs a Gatekeeper-backed one (scanning off by default).
 	scanner ResultScanner
+
+	// toolCallObserver receives one ToolCallRecord per tools/call (Plan #22
+	// T.2, the tool-call event publisher). Nil = no events; the
+	// tas_mcp_tool_call_seconds histogram is recorded regardless.
+	toolCallObserver ToolCallObserver
 }
 
 // Metrics tracks federation manager statistics
@@ -335,7 +343,20 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 
 	m.updateRequestMetrics()
 
+	isToolCall := request.Method == methodToolsCall
+	var obs *callObservation
+	if isToolCall {
+		ctx, obs = withCallObservation(ctx)
+	}
+
+	callStart := time.Now()
 	response, err := service.Invoke(ctx, request)
+	callDuration := time.Since(callStart)
+	if isToolCall {
+		// Observe on every exit from here on, success or failure, after the
+		// response is final. Registered first so it runs last.
+		defer func() { m.observeToolCall(ctx, serverID, request, response, err, obs, callStart, callDuration) }()
+	}
 	if err != nil {
 		m.updateFailureMetrics()
 		m.logger.Error("Failed to invoke server",
@@ -352,7 +373,7 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 	// original response is returned on any error). Only tools/call carries
 	// reducible/scannable external content, so structured-output methods pass
 	// through untouched.
-	if request.Method == methodToolsCall && response != nil {
+	if isToolCall && response != nil {
 		m.mu.RLock()
 		sc := m.scanner
 		rp := m.resultProcessor
@@ -377,6 +398,74 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 		}
 	}
 	return response, nil
+}
+
+// observeToolCall records the histogram and hands the record to the observer.
+// It must never affect the call: it runs after the response is final, and a
+// panic in an observer is contained here.
+func (m *Manager) observeToolCall(ctx context.Context, serverID string, req *MCPRequest, resp *MCPResponse,
+	invokeErr error, obs *callObservation, start time.Time, dur time.Duration) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Error("tool-call observer panicked; call unaffected", zap.Any("panic", r))
+		}
+	}()
+
+	upstreamErr := invokeErr
+	scanned, blocked := false, false
+	findings := map[string]int{}
+	if obs != nil {
+		obs.mu.Lock()
+		if upstreamErr == nil {
+			upstreamErr = obs.upstreamErr
+		}
+		scanned, blocked = obs.scanned, obs.blocked
+		for k, v := range obs.findings {
+			findings[k] = v
+		}
+		obs.mu.Unlock()
+	}
+
+	tool := toolCallName(req)
+	outcome := classifyOutcome(upstreamErr, resp, blocked)
+	ToolCallSeconds.WithLabelValues(serverID, toolLabels.label(serverID, tool), outcome).Observe(dur.Seconds())
+
+	m.mu.RLock()
+	o := m.toolCallObserver
+	m.mu.RUnlock()
+	if o == nil {
+		return
+	}
+
+	id := identity.FromContext(ctx)
+	rec := ToolCallRecord{
+		ServerID:     serverID,
+		ToolName:     tool,
+		ToolCallID:   toolCallID(ctx, req, id),
+		Outcome:      outcome,
+		Duration:     dur,
+		ResultBytes:  resultBytes(resp),
+		ReducedBytes: reducedBytes(resp),
+		Findings:     findings,
+		ScanSkipped:  !scanned,
+		OccurredAt:   start.UTC(),
+		Identity:     id,
+	}
+	o.ObserveToolCall(rec)
+}
+
+// toolCallID picks the id that joins this call to the gateway's view of it:
+// the TAS-Tool-Call-Id header (the LLM's tool_call_id) when the agent sends
+// it, else the client's JSON-RPC request id, else a fresh UUID (never the
+// handler's synthetic req_<nanos>, which identifies nothing outside this pod).
+func toolCallID(ctx context.Context, req *MCPRequest, id *identity.Identity) string {
+	if id != nil && id.ToolCallID != "" {
+		return id.ToolCallID
+	}
+	if req != nil && req.ID != "" && !requestIDGenerated(ctx) {
+		return req.ID
+	}
+	return uuid.NewString()
 }
 
 // BroadcastRequest sends a request to all healthy servers

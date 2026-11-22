@@ -31,6 +31,7 @@ import (
 	"github.com/tributary-ai-services/tas-mcp/internal/logger"
 	"github.com/tributary-ai-services/tas-mcp/internal/reduction"
 	"github.com/tributary-ai-services/tas-mcp/internal/scanning"
+	"github.com/tributary-ai-services/tas-mcp/internal/toolevents"
 )
 
 // Server configuration constants
@@ -67,6 +68,9 @@ func main() {
 	federationManager, reducer := setupFederation(cfg, zapLogger)
 	if reducer != nil {
 		defer func() { _ = reducer.Close() }()
+	}
+	if pub := installToolCallEvents(federationManager, cfg, zapLogger); pub != nil {
+		defer func() { _ = pub.Close() }()
 	}
 
 	grpcServer, mcpServer := setupGRPCServer(cfg, zapLogger, forwarder)
@@ -222,6 +226,26 @@ func setupGRPCServer(
 	}()
 
 	return grpcServer, mcpServer
+}
+
+// installToolCallEvents wires the com.tas.aiqg.tool_call.v1 publisher into the
+// federation Manager (Plan #22 T.2). Nil when TOOL_CALL_EVENTS_ENABLED is
+// unset, or when it is set without brokers (logged at Warn, not fatal: a
+// missing event stream must not take the proxy down).
+func installToolCallEvents(mgr *federation.Manager, cfg *config.Config, zapLogger *zap.Logger) *toolevents.Publisher {
+	c := cfg.ToolCallEvents
+	if mgr == nil || c == nil || !c.Enabled {
+		return nil
+	}
+	pub, err := toolevents.NewKafkaPublisher(c.Brokers, c.Topic, c.BufferSize, zapLogger)
+	if err != nil {
+		zapLogger.Warn("tool-call events: not publishing", zap.Error(err))
+		return nil
+	}
+	mgr.SetToolCallObserver(pub)
+	zapLogger.Info("tool-call events: enabled",
+		zap.Strings("brokers", c.Brokers), zap.String("topic", c.Topic), zap.Int("buffer", c.BufferSize))
+	return pub
 }
 
 // buildIdentityResolver returns the caller-identity resolver for the federation

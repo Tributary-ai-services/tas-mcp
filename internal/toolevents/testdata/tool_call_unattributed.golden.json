@@ -1,0 +1,22 @@
+{
+  "tenant_id": null,
+  "token_id": null,
+  "owner_sub": null,
+  "user_id": null,
+  "agent_id": null,
+  "source_app": null,
+  "flow_id": null,
+  "step_id": null,
+  "tool_call_id": "toolu_01ABCdef",
+  "tool_name": "create_napkin",
+  "server_id": "napkin-mcp",
+  "observed_by": "proxy",
+  "outcome": "timeout",
+  "duration_ms": 842,
+  "result_bytes": 0,
+  "result_tokens_est": 0,
+  "reduced_bytes": 0,
+  "findings": {},
+  "scan_skipped": true,
+  "occurred_at": "2026-11-21T16:04:05.123Z"
+}

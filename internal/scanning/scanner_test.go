@@ -99,3 +99,29 @@ func TestParseStrategy_NeverTokenize(t *testing.T) {
 
 // Satisfy the port at compile time.
 var _ federation.BlockScanner = (*Scanner)(nil)
+
+// The tool-call event's findings keys (Plan #22 T.2) are these PatternIDs
+// verbatim, and AIQG groups them by the prefix before the first "-". Pin that
+// the real Gatekeeper scanner returns categorized ids ("pii-email"), not bare
+// ones ("email"), so a Gatekeeper rename can't silently break Data safety.
+func TestScanner_PatternIDsAreCategorized(t *testing.T) {
+	s, err := New(Config{Enabled: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out, err := s.Scan(context.Background(), "mail alice@example.com", federation.TierExternal)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	got := map[string]bool{}
+	for _, f := range out.Findings {
+		got[f.PatternID] = true
+		cat, _, ok := strings.Cut(f.PatternID, "-")
+		if !ok || (cat != "pii" && cat != "cred" && cat != "injection" && cat != "aiqg") {
+			t.Errorf("pattern id %q has no known category prefix", f.PatternID)
+		}
+	}
+	if !got["pii-email"] {
+		t.Fatalf("want pattern id pii-email, got %v", got)
+	}
+}

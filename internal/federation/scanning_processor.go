@@ -32,7 +32,7 @@ const (
 // (Gatekeeper's contract — "never log actual PII"). It is the federation-local
 // projection of scan.Finding.
 type ScanFinding struct {
-	PatternID   string // "email", "ssn", "aws_access_key", "sql_injection"
+	PatternID   string // Gatekeeper matcher id, already categorized: "pii-email", "pii-ssn", "cred-aws-access-key", "injection-sql"
 	PatternType string // "pii" | "credential" | "injection"
 	Severity    string
 	Preview     string // masked, e.g. "j***@***.com" — never the raw value
@@ -138,6 +138,9 @@ func (p *scanningResultProcessor) ScanResult(ctx context.Context, serverID strin
 	}
 
 	findings, anyRedacted := p.scanResultContent(ctx, resp, tier)
+	// Hand the counts to the tool-call event (T.2): the event reuses this
+	// scan's result, it never scans again.
+	observationFrom(ctx).recordScan(findings)
 	if len(findings) == 0 {
 		return resp
 	}

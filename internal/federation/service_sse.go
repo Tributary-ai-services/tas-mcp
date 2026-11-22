@@ -102,7 +102,7 @@ func (c *SSEClient) Call(ctx context.Context, method string, params map[string]i
 		return nil, fmt.Errorf("read %s response: %w", c.server.ID, err)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("%s returned %s: %w: %s", c.server.ID, resp.Status, errUpstreamStatus,
+		return nil, fmt.Errorf("%s returned %s: %w: %s", c.server.ID, resp.Status, &upstreamStatusError{code: resp.StatusCode},
 			string(data[:min(len(data), errBodyPreview)]))
 	}
 
