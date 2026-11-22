@@ -12,3 +12,12 @@ data:
   MAX_CONNECTIONS: "100"
   MAX_EVENT_SIZE: "1048576"  # 1MB
   FORWARD_TIMEOUT: "30s"
+  # Plan #22 T.1: resolve the caller's TAS-Auth token through aiqg-dashboard-be
+  # (observe mode: a call without a valid token is still served, unattributed).
+  IDENTITY_ENABLED: "true"
+  AIQG_DASHBOARD_URL: "http://aiqg-dashboard-be.aiqg.svc.cluster.local:8095"
+  # Plan #22 T.2: one com.tas.aiqg.tool_call.v1 per call, to the topic the
+  # aiqg-aggregator reads (Timescale aiqg.tool_call_events).
+  TOOL_CALL_EVENTS_ENABLED: "true"
+  AIQG_KAFKA_BROKERS: "kafka-shared.tas-shared:9092"
+  AIQG_KAFKA_TOPIC: "tas.aiqg.events.v1"

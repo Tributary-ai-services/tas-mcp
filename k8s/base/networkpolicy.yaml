@@ -106,3 +106,19 @@ spec:
     ports:
     - protocol: TCP
       port: 11434
+  # Plan #22 T.1: token resolution at aiqg-dashboard-be (namespace aiqg, 8095).
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: aiqg
+    ports:
+    - protocol: TCP
+      port: 8095
+  # Plan #22 T.2: tool-call events to kafka-shared (tas-shared, 9092).
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: tas-shared
+    ports:
+    - protocol: TCP
+      port: 9092
