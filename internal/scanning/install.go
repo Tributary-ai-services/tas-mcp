@@ -33,12 +33,18 @@ func Install(m *federation.Manager, cfg Config, logger *zap.Logger) *Scanner { /
 		return nil
 	}
 
+	var opts []federation.ScanOption
+	if a := installAttestor(s, cfg.Attest, logger); a != nil {
+		opts = append(opts, federation.WithAttestor(a))
+	}
+
 	m.SetScanner(federation.NewScanningResultProcessor(
 		s,
 		nil, // tierFor: every federated server is TierExternal for now (per-server
 		//        trust tier is a follow-up; External is the safe default).
 		findingSink(logger, cfg.Redact),
 		cfg.Redact,
+		opts...,
 	))
 
 	mode := "log-only"
@@ -51,6 +57,36 @@ func Install(m *federation.Manager, cfg Config, logger *zap.Logger) *Scanner { /
 			zap.String("profile", orDefault(cfg.Profile, "full")))
 	}
 	return s
+}
+
+// installAttestor builds the GK-5b attestor when configured. Any problem is
+// logged and leaves attestation off: the gateway then scans every tool
+// result itself, as before.
+func installAttestor(s *Scanner, cfg AttestConfig, logger *zap.Logger) *Attestor { //nolint:gocritic // startup-only config
+	if !cfg.Enabled {
+		return nil
+	}
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	store, err := NewRedisAttestStore(cfg.RedisURL)
+	if err != nil {
+		logger.Warn("scan attestations: store unavailable; off", zap.Error(err))
+		return nil
+	}
+	a, err := NewAttestor(store, s, cfg, logger)
+	if err != nil {
+		logger.Warn("scan attestations: off", zap.Error(err))
+		return nil
+	}
+	s.attestor = a
+	logger.Info("scan attestations: enabled (GK-5b)",
+		zap.String("ruleset_version", a.RulesetVersion()),
+		zap.String("profile", string(s.profile)),
+		zap.Strings("gateway_builds", a.builds),
+		zap.String("gateway_tier", a.gwTier.String()),
+		zap.Duration("ttl", a.ttl))
+	return a
 }
 
 // findingSink logs one structured line per tool-result block that produced

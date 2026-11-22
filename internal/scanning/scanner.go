@@ -46,6 +46,10 @@ type Config struct {
 	// MinConfidence is the detection threshold below which matches are dropped.
 	// 0 → Gatekeeper default (0.7).
 	MinConfidence float64
+
+	// Attest writes scan attestations to the gateway's scan-once store
+	// (Plan #22 T.3, GK-5b). Off unless Attest.Enabled.
+	Attest AttestConfig
 }
 
 // Scanner is the Gatekeeper-backed BlockScanner. One scanner instance serves all
@@ -57,6 +61,17 @@ type Scanner struct {
 	minConf  float64
 	redact   bool
 	strategy scan.RedactionStrategy
+
+	// attestor is set by Install when attestations are on; Close drains it.
+	attestor *Attestor
+}
+
+// Close drains and stops the attestor, if any. Safe on nil and repeatable.
+func (s *Scanner) Close() error {
+	if s == nil || s.attestor == nil {
+		return nil
+	}
+	return s.attestor.Close()
 }
 
 // New builds a Scanner from cfg. Returns (nil, nil) when scanning is disabled so

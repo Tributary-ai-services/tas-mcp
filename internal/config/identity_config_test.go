@@ -39,3 +39,26 @@ func TestToolCallEventsConfig(t *testing.T) {
 		t.Fatalf("got %+v", c)
 	}
 }
+
+func TestScanAttestConfig(t *testing.T) {
+	t.Setenv("SCANNING_ENABLED", "true")
+	t.Setenv("SCAN_ATTEST_ENABLED", "")
+	if c := Load(); c.Scanning == nil || c.Scanning.Attest != nil {
+		t.Fatalf("attest must be off by default: %+v", c.Scanning)
+	}
+	t.Setenv("SCAN_ATTEST_ENABLED", "true")
+	t.Setenv("SCAN_ATTEST_GATEWAY_BUILDS", "d6f4b1a,abc1234")
+	a := Load().Scanning.Attest
+	if a == nil || !a.Enabled || len(a.GatewayBuilds) != 2 || a.TTL != 24*time.Hour || a.RedisURL != DefaultFederationRedisURL || a.GatewayTier != "internal" {
+		t.Fatalf("got %+v", a)
+	}
+	t.Setenv("FEDERATION_REDIS_URL", "redis://r:6379/0")
+	if a := Load().Scanning.Attest; a.RedisURL != "redis://r:6379/0" {
+		t.Fatalf("redis fallback = %s", a.RedisURL)
+	}
+	t.Setenv("SCAN_ATTEST_REDIS_URL", "redis://s:6379/0")
+	t.Setenv("SCAN_ATTEST_TTL", "1h")
+	if a := Load().Scanning.Attest; a.RedisURL != "redis://s:6379/0" || a.TTL != time.Hour {
+		t.Fatalf("overrides = %+v", a)
+	}
+}

@@ -65,10 +65,11 @@ func main() {
 		defer forwarder.Stop()
 	}
 
-	federationManager, reducer := setupFederation(cfg, zapLogger)
+	federationManager, reducer, scanner := setupFederation(cfg, zapLogger)
 	if reducer != nil {
 		defer func() { _ = reducer.Close() }()
 	}
+	defer func() { _ = scanner.Close() }() // nil-safe: drains GK-5b attestations
 	pub := installToolCallEvents(federationManager, cfg, zapLogger)
 	if pub != nil {
 		defer func() { _ = pub.Close() }()
@@ -95,9 +96,10 @@ func main() {
 //
 // reduce-at-source is installed on the concrete *Manager before it is handed to
 // the HTTP server as a federation.TASManager (SetResultProcessor lives on the
-// concrete type). It no-ops unless REDUCTION_ENABLED. Returns the *Reducer (nil
-// when disabled) so main can Close it on shutdown.
-func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Manager, *reduction.Reducer) {
+// concrete type). It no-ops unless REDUCTION_ENABLED. Returns the *Reducer and
+// the boundary *Scanner (each nil when disabled) so main can Close them on
+// shutdown.
+func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Manager, *reduction.Reducer, *scanning.Scanner) {
 	registry := buildFederationRegistry(cfg, zapLogger)
 	mgr := federation.NewManagerWithRegistry(
 		zapLogger, federation.NewDiscovery(zapLogger), federation.NewBridge(zapLogger), registry)
@@ -106,8 +108,8 @@ func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Man
 
 	// Gatekeeper boundary scanning of federated tool results (G2). Independent
 	// of reduction: scanning is the security control and runs on every external
-	// tool result. No-ops unless SCANNING_ENABLED. The scanner holds no
-	// resources, so it isn't threaded through shutdown.
+	// tool result. No-ops unless SCANNING_ENABLED. Its only resource is the
+	// GK-5b attestor (SCAN_ATTEST_ENABLED); closed from main on shutdown.
 	scanner := scanning.Install(mgr, scanning.FromConfig(cfg.Scanning), zapLogger)
 
 	// Start the manager lifecycle (health monitoring + the registry Watch that
@@ -120,7 +122,7 @@ func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Man
 		zap.Bool("reduce_at_source", reducer != nil),
 		zap.Bool("boundary_scanning", scanner != nil))
 
-	return mgr, reducer
+	return mgr, reducer, scanner
 }
 
 // buildFederationRegistry selects the registry backend from config. Default is
