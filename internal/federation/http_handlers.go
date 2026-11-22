@@ -3,6 +3,7 @@ package federation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -40,6 +41,99 @@ func (h *HTTPHandlers) withIdentity(r *http.Request) context.Context {
 	return identity.WithIdentity(ctx, h.identity.Resolve(ctx, r.Header))
 }
 
+// TenantPolicyProvider is implemented by a manager that hosts the
+// tenant-scoped registry (Plan #22 C.1). *Manager implements it.
+type TenantPolicyProvider interface {
+	TenantPolicy() *TenantPolicy
+}
+
+// ServerUpdater is implemented by a manager that supports PUT (C.1).
+type ServerUpdater interface {
+	UpdateServer(server *MCPServer) error
+}
+
+// tenancy returns the manager's tenant policy, nil when MCP_TENANT_SERVERS is
+// off (or the manager does not support it).
+func (h *HTTPHandlers) tenancy() *TenantPolicy {
+	if p, ok := h.manager.(TenantPolicyProvider); ok {
+		return p.TenantPolicy()
+	}
+	return nil
+}
+
+// requireAdmin refuses a write without MCP_ADMIN_TOKEN when the tenant
+// registry is on, and reports whether the handler may continue. Off, every
+// write is allowed, as before C.1.
+func (h *HTTPHandlers) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	p := h.tenancy()
+	if p == nil {
+		return true
+	}
+	switch p.AdminStatus(r) {
+	case 0:
+		return true
+	case http.StatusServiceUnavailable:
+		http.Error(w, "federation writes are disabled: MCP_ADMIN_TOKEN is not configured", http.StatusServiceUnavailable)
+	case http.StatusUnauthorized:
+		http.Error(w, "missing "+AdminTokenHeader+" header", http.StatusUnauthorized)
+	default:
+		http.Error(w, "invalid "+AdminTokenHeader, http.StatusForbidden)
+	}
+	h.logger.Warn("federation: write refused without a valid admin token",
+		zap.String("method", r.Method), zap.String("path", r.URL.Path))
+	return false
+}
+
+// visibleTo returns the filter a read applies: nil (everything) when the
+// tenant registry is off or the request carries the admin token; otherwise
+// platform servers plus the caller's own tenant's, enabled only. The tenant
+// comes from the resolved TAS-Auth token, never from the request.
+func (h *HTTPHandlers) visibleTo(r *http.Request) func(*MCPServer) bool {
+	p := h.tenancy()
+	if p == nil || p.IsAdmin(r) {
+		return nil
+	}
+	id := identity.FromContext(h.withIdentity(r))
+	return func(s *MCPServer) bool { return p.Visible(s, id) }
+}
+
+// filterServers applies visibleTo's filter.
+func filterServers(servers []*MCPServer, keep func(*MCPServer) bool) []*MCPServer {
+	if keep == nil {
+		return servers
+	}
+	out := make([]*MCPServer, 0, len(servers))
+	for _, s := range servers {
+		if keep(s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// serverVisible reports whether the server id exists and r may see it.
+func (h *HTTPHandlers) serverVisible(r *http.Request, id string) bool {
+	keep := h.visibleTo(r)
+	if keep == nil {
+		return true
+	}
+	s, err := h.manager.GetServer(id)
+	return err == nil && keep(s)
+}
+
+// statusFor maps a tenancy error to its HTTP status, or fallback.
+func statusFor(err error, fallback int) int {
+	switch {
+	case errors.Is(err, ErrTenantForbidden), errors.Is(err, ErrServerDisabled), errors.Is(err, ErrToolNotAllowed):
+		return http.StatusForbidden
+	case errors.Is(err, ErrServerNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, ErrInvalidServer), errors.Is(err, ErrEgressDenied):
+		return http.StatusBadRequest
+	}
+	return fallback
+}
+
 // NewHTTPHandlers creates new HTTP handlers for federation
 func NewHTTPHandlers(manager TASManager, logger *zap.Logger) *HTTPHandlers {
 	return &HTTPHandlers{
@@ -54,6 +148,11 @@ func (h *HTTPHandlers) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/api/v1/federation/servers", h.handleListServers).Methods("GET")
 	router.HandleFunc("/api/v1/federation/servers", h.handleRegisterServer).Methods("POST")
 	router.HandleFunc("/api/v1/federation/servers/{id}", h.handleGetServer).Methods("GET")
+	if h.tenancy() != nil {
+		// PUT exists only with the tenant registry on (Plan #22 C.1); off,
+		// the route table is exactly as before.
+		router.HandleFunc("/api/v1/federation/servers/{id}", h.handleUpdateServer).Methods("PUT")
+	}
 	router.HandleFunc("/api/v1/federation/servers/{id}", h.handleUnregisterServer).Methods("DELETE")
 
 	// Server operations
@@ -73,13 +172,14 @@ func (h *HTTPHandlers) RegisterRoutes(router *mux.Router) {
 }
 
 // handleListServers returns all registered servers
-func (h *HTTPHandlers) handleListServers(w http.ResponseWriter, _ *http.Request) {
+func (h *HTTPHandlers) handleListServers(w http.ResponseWriter, r *http.Request) {
 	servers, err := h.manager.ListServers()
 	if err != nil {
 		h.logger.Error("Failed to list servers", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	servers = filterServers(servers, h.visibleTo(r))
 
 	out := make([]serverView, 0, len(servers))
 	for _, s := range servers {
@@ -100,6 +200,14 @@ type serverView struct {
 }
 
 func (h *HTTPHandlers) view(s *MCPServer) serverView {
+	if p := h.tenancy(); p != nil {
+		// Show the lazily-migrated defaults explicitly, so a reader (the
+		// operator's ownership check, the AIQG reconcile) never has to know
+		// that an absent field means operator / enabled.
+		c := *s
+		p.Normalize(&c)
+		s = &c
+	}
 	v := serverView{MCPServer: s}
 	if p, ok := h.manager.(ProbeStatusProvider); ok {
 		if r, ok := p.ProbeStatus(s.ID); ok {
@@ -113,6 +221,10 @@ func (h *HTTPHandlers) view(s *MCPServer) serverView {
 // result, 404 when the server is unknown or not probed yet.
 func (h *HTTPHandlers) handleGetProbe(w http.ResponseWriter, r *http.Request) {
 	serverID := mux.Vars(r)["id"]
+	if !h.serverVisible(r, serverID) {
+		http.Error(w, "no probe result for server "+serverID, http.StatusNotFound)
+		return
+	}
 	p, ok := h.manager.(ProbeStatusProvider)
 	if !ok {
 		http.Error(w, "probes not available", http.StatusNotFound)
@@ -128,6 +240,9 @@ func (h *HTTPHandlers) handleGetProbe(w http.ResponseWriter, r *http.Request) {
 
 // handleRegisterServer registers a new MCP server
 func (h *HTTPHandlers) handleRegisterServer(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	var server MCPServer
 	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
 		h.logger.Error("Failed to decode server", zap.Error(err))
@@ -137,7 +252,7 @@ func (h *HTTPHandlers) handleRegisterServer(w http.ResponseWriter, r *http.Reque
 
 	if err := h.manager.RegisterServer(&server); err != nil {
 		h.logger.Error("Failed to register server", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), statusFor(err, http.StatusBadRequest))
 		return
 	}
 
@@ -162,12 +277,55 @@ func (h *HTTPHandlers) handleGetServer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	if keep := h.visibleTo(r); keep != nil && !keep(server) {
+		// Invisible reads as absent: a caller learns nothing about another
+		// tenant's servers, not even that the id is taken.
+		http.Error(w, fmt.Sprintf("server with ID %s not found", serverID), http.StatusNotFound)
+		return
+	}
 
 	h.writeJSONResponse(w, http.StatusOK, h.view(server))
 }
 
+// handleUpdateServer replaces a server's definition (PUT, tenant registry
+// on only). The path id wins; a body id that disagrees is a 400.
+func (h *HTTPHandlers) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
+	u, ok := h.manager.(ServerUpdater)
+	if !ok {
+		http.Error(w, "update not supported", http.StatusNotImplemented)
+		return
+	}
+	serverID := mux.Vars(r)["id"]
+	var server MCPServer
+	if err := json.NewDecoder(r.Body).Decode(&server); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if server.ID != "" && server.ID != serverID {
+		http.Error(w, "body id does not match the path id", http.StatusBadRequest)
+		return
+	}
+	server.ID = serverID
+	if err := u.UpdateServer(&server); err != nil {
+		h.logger.Error("Failed to update server", zap.String("server_id", serverID), zap.Error(err))
+		http.Error(w, err.Error(), statusFor(err, http.StatusBadRequest))
+		return
+	}
+	h.logger.Info("Updated server via HTTP API", zap.String("server_id", serverID))
+	h.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
+		"message":   "Server updated successfully",
+		"server_id": serverID,
+	})
+}
+
 // handleUnregisterServer removes a server
 func (h *HTTPHandlers) handleUnregisterServer(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	vars := mux.Vars(r)
 	serverID := vars["id"]
 
@@ -211,17 +369,33 @@ func (h *HTTPHandlers) handleInvokeServer(w http.ResponseWriter, r *http.Request
 			zap.String("server_id", serverID),
 			zap.String("method", request.Method),
 			zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), h.invokeStatus(err))
 		return
 	}
 
 	h.writeJSONResponse(w, http.StatusOK, response)
 }
 
+// invokeStatus is 500 for every invoke error, as before C.1, except the
+// tenancy refusals, which are 403 when the tenant registry is on.
+func (h *HTTPHandlers) invokeStatus(err error) int {
+	if h.tenancy() == nil {
+		return http.StatusInternalServerError
+	}
+	if st := statusFor(err, 0); st == http.StatusForbidden {
+		return st
+	}
+	return http.StatusInternalServerError
+}
+
 // handleCheckHealth performs a health check on a server
 func (h *HTTPHandlers) handleCheckHealth(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	serverID := vars["id"]
+	if !h.serverVisible(r, serverID) {
+		http.Error(w, fmt.Sprintf("server with ID %s not found", serverID), http.StatusNotFound)
+		return
+	}
 
 	err := h.manager.CheckHealth(r.Context(), serverID)
 
@@ -272,12 +446,20 @@ func (h *HTTPHandlers) handleBroadcast(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetHealthStatus returns health status of all servers
-func (h *HTTPHandlers) handleGetHealthStatus(w http.ResponseWriter, _ *http.Request) {
+func (h *HTTPHandlers) handleGetHealthStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := h.manager.GetHealthStatus()
 	if err != nil {
 		h.logger.Error("Failed to get health status", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	visible := h.visibleIDs(r)
+	if visible != nil {
+		for id := range status {
+			if !visible[id] {
+				delete(status, id)
+			}
+		}
 	}
 
 	resp := map[string]interface{}{
@@ -288,10 +470,34 @@ func (h *HTTPHandlers) handleGetHealthStatus(w http.ResponseWriter, _ *http.Requ
 	// the registry status above does not track.
 	if p, ok := h.manager.(ProbeStatusProvider); ok {
 		if probes := p.ProbeStatuses(); probes != nil {
+			for id := range probes {
+				if visible != nil && !visible[id] {
+					delete(probes, id)
+				}
+			}
 			resp["probes"] = probes
 		}
 	}
 	h.writeJSONResponse(w, http.StatusOK, resp)
+}
+
+// visibleIDs is the set of server ids r may see, nil when it may see all.
+func (h *HTTPHandlers) visibleIDs(r *http.Request) map[string]bool {
+	keep := h.visibleTo(r)
+	if keep == nil {
+		return nil
+	}
+	servers, err := h.manager.ListServers()
+	ids := map[string]bool{}
+	if err != nil {
+		return ids
+	}
+	for _, s := range servers {
+		if keep(s) {
+			ids[s.ID] = true
+		}
+	}
+	return ids
 }
 
 // handleGetMetrics returns federation metrics
@@ -319,6 +525,7 @@ func (h *HTTPHandlers) handleListServersByCategory(w http.ResponseWriter, r *htt
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	servers = filterServers(servers, h.visibleTo(r))
 
 	h.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
 		"category": category,

@@ -64,6 +64,30 @@ type Config struct {
 	// the same brokers, topic and buffer as ToolCallEvents, and needs
 	// ServerProbes: the catalogue is what the probes see.
 	ToolCatalogueEvents *ToolCallEventsConfig `json:"tool_catalogue_events,omitempty"`
+	// TenantServers turns on the tenant-scoped federation registry (Plan #22
+	// C.1). Nil (MCP_TENANT_SERVERS unset) leaves the registry global and
+	// its write routes unauthenticated, exactly as before.
+	TenantServers *TenantServersConfig `json:"tenant_servers,omitempty"`
+}
+
+// TenantServersConfig configures the tenant-scoped federation registry
+// (Plan #22 C.1, design §9.6).
+type TenantServersConfig struct {
+	Enabled bool `json:"enabled"`
+	// AdminToken is MCP_ADMIN_TOKEN: the service token register, update and
+	// delete require (header TAS-MCP-Admin-Token). Empty with the flag on =
+	// every write is refused. Never logged or serialized.
+	AdminToken string `json:"-"`
+	// EgressAllowlist is MCP_TENANT_EGRESS_ALLOWLIST, a JSON object of
+	// tenant id -> host names a tenant server outside the cluster may use
+	// (Q13), e.g. {"<tenant-uuid>":["api.salesforce.com","*.qualtrics.com"]}.
+	EgressAllowlist map[string][]string `json:"egress_allowlist,omitempty"`
+	// EgressAllowlistErr is set when MCP_TENANT_EGRESS_ALLOWLIST does not
+	// parse; the allowlist is then empty (fail closed: no external hosts).
+	EgressAllowlistErr error `json:"-"`
+	// ClusterNamespaces is MCP_TENANT_CLUSTER_NAMESPACES: the namespaces an
+	// in-cluster tenant server may live in. Empty = tas-mcp-servers.
+	ClusterNamespaces []string `json:"cluster_namespaces,omitempty"`
 }
 
 // ToolCallEventsConfig configures the com.tas.aiqg.tool_call.v1 publisher
@@ -373,12 +397,32 @@ func Load() *Config {
 		}
 	}
 
+	if getEnvAsBool("MCP_TENANT_SERVERS", false) {
+		config.TenantServers = loadTenantServersConfig()
+	}
+
 	// Load federation registry configuration if a backend is chosen
 	if getEnv("FEDERATION_REGISTRY", "") != "" {
 		config.Federation = loadFederationConfig()
 	}
 
 	return config
+}
+
+// loadTenantServersConfig loads the tenant-scoped registry configuration.
+func loadTenantServersConfig() *TenantServersConfig {
+	c := &TenantServersConfig{
+		Enabled:           true,
+		AdminToken:        getEnv("MCP_ADMIN_TOKEN", ""),
+		ClusterNamespaces: getEnvAsSlice("MCP_TENANT_CLUSTER_NAMESPACES", nil),
+	}
+	if raw := strings.TrimSpace(getEnv("MCP_TENANT_EGRESS_ALLOWLIST", "")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &c.EgressAllowlist); err != nil {
+			c.EgressAllowlist = nil
+			c.EgressAllowlistErr = fmt.Errorf("MCP_TENANT_EGRESS_ALLOWLIST: %w", err)
+		}
+	}
+	return c
 }
 
 // loadIdentityConfig loads caller-identity configuration from environment.

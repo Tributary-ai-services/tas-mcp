@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -112,6 +113,8 @@ func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Man
 	// GK-5b attestor (SCAN_ATTEST_ENABLED); closed from main on shutdown.
 	scanner := scanning.Install(mgr, scanning.FromConfig(cfg.Scanning), zapLogger)
 
+	installTenantServers(mgr, cfg, zapLogger)
+
 	// Start the manager lifecycle (health monitoring + the registry Watch that
 	// converges local services when another replica unregisters a server).
 	if err := mgr.Start(context.Background()); err != nil {
@@ -123,6 +126,40 @@ func setupFederation(cfg *config.Config, zapLogger *zap.Logger) (*federation.Man
 		zap.Bool("boundary_scanning", scanner != nil))
 
 	return mgr, reducer, scanner
+}
+
+// installTenantServers turns on the tenant-scoped registry (Plan #22 C.1) when
+// MCP_TENANT_SERVERS is set. Misconfiguration is logged at Warn and fails
+// closed: no admin token refuses every write, an unparsable egress allowlist
+// allows no external host. It never stops the proxy from starting.
+func installTenantServers(mgr *federation.Manager, cfg *config.Config, zapLogger *zap.Logger) {
+	c := cfg.TenantServers
+	if c == nil || !c.Enabled {
+		return
+	}
+	var namespaces []string
+	for _, ns := range c.ClusterNamespaces {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	mgr.SetTenantPolicy(&federation.TenantPolicy{
+		AdminToken:        c.AdminToken,
+		Egress:            c.EgressAllowlist,
+		ClusterNamespaces: namespaces,
+	})
+	if c.AdminToken == "" {
+		zapLogger.Warn("tenant servers: MCP_ADMIN_TOKEN is not set; every register/update/delete will be refused (503)")
+	}
+	if c.EgressAllowlistErr != nil {
+		zapLogger.Warn("tenant servers: egress allowlist ignored; no external tenant host is allowed", zap.Error(c.EgressAllowlistErr))
+	}
+	if cfg.Identity == nil || !cfg.Identity.Enabled {
+		zapLogger.Warn("tenant servers: IDENTITY_ENABLED is off, so every call is unattributed and sees platform servers only")
+	}
+	zapLogger.Info("tenant servers: enabled",
+		zap.Int("egress_tenants", len(c.EgressAllowlist)),
+		zap.Strings("cluster_namespaces", namespaces))
 }
 
 // buildFederationRegistry selects the registry backend from config. Default is
