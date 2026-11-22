@@ -72,6 +72,14 @@ spec:
             secretKeyRef:
               name: aiqg-dashboard-internal-auth
               key: AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN
+        # Plan #22 C.1: the service token federation writes need once
+        # MCP_TENANT_SERVERS is on (header TAS-MCP-Admin-Token). Same value as
+        # the operator's; created by hand, value in aether-secrets.
+        - name: MCP_ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: tas-mcp-admin-token
+              key: token
         envFrom:
         - configMapRef:
             name: tas-mcp-config
