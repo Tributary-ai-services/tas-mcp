@@ -21,3 +21,13 @@ data:
   TOOL_CALL_EVENTS_ENABLED: "true"
   AIQG_KAFKA_BROKERS: "kafka-shared.tas-shared:9092"
   AIQG_KAFKA_TOPIC: "tas.aiqg.events.v1"
+  # Plan #22 T.4: probe every federated server each 60 s (tas_mcp_server_up),
+  # and snapshot each server's tools/list as com.tas.aiqg.tool_catalogue.v1.
+  SERVER_PROBES_ENABLED: "true"
+  TOOL_CATALOGUE_EVENTS_ENABLED: "true"
+  # Plan #22 T.3 (GK-5b): attest scanned tool results into the gateway's
+  # scan-once store. The key carries the gateway's build, which the proxy
+  # cannot learn (AIQG-85): this must follow every gateway roll, or the
+  # gateway simply scans again (fails safe).
+  SCAN_ATTEST_ENABLED: "true"
+  SCAN_ATTEST_GATEWAY_BUILDS: "5.120.0"
