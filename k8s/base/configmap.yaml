@@ -31,3 +31,7 @@ data:
   # gateway simply scans again (fails safe).
   SCAN_ATTEST_ENABLED: "true"
   SCAN_ATTEST_GATEWAY_BUILDS: "5.120.0"
+  # Plan #22 C.1: tenant-scoped registry. Writes need TAS-MCP-Admin-Token
+  # (operator 0.4.0 and the dashboard reconcile send it); each caller sees
+  # platform servers plus its own tenant's, by the resolved token only.
+  MCP_TENANT_SERVERS: "true"
