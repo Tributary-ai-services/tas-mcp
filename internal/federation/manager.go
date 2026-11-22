@@ -65,6 +65,25 @@ type Manager struct {
 	// prober probes every registered server on an interval (Plan #22 T.4).
 	// Nil = probes off; ProbeStatus then reports nothing.
 	prober *Prober
+
+	// tenancy is the tenant-scoped registry (Plan #22 C.1). Nil =
+	// MCP_TENANT_SERVERS off: every server is visible to and callable by
+	// every caller, as before C.1.
+	tenancy *TenantPolicy
+}
+
+// SetTenantPolicy turns the tenant-scoped registry on (non-nil) or off (nil).
+func (m *Manager) SetTenantPolicy(p *TenantPolicy) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tenancy = p
+}
+
+// TenantPolicy returns the installed tenant policy, nil when off.
+func (m *Manager) TenantPolicy() *TenantPolicy {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.tenancy
 }
 
 // Metrics tracks federation manager statistics
@@ -170,6 +189,13 @@ func (m *Manager) RegisterServer(server *MCPServer) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.tenancy != nil {
+		m.tenancy.Normalize(server)
+		if err := m.tenancy.Validate(server); err != nil {
+			return err
+		}
+	}
+
 	// Check if server already exists
 	if _, err := m.registry.Get(context.Background(), server.ID); err == nil {
 		return fmt.Errorf("server with ID %s already registered", server.ID)
@@ -208,6 +234,61 @@ func (m *Manager) RegisterServer(server *MCPServer) error {
 		zap.String("endpoint", server.Endpoint))
 
 	return nil
+}
+
+// UpdateServer replaces an existing server's definition (PUT, Plan #22 C.1).
+// It keeps the original CreatedAt, resets Status to unknown and drops this
+// replica's live connection so the next invoke rebuilds it from the new
+// definition; other replicas drop theirs on the registry put event (see
+// watchRegistry). Returns an error wrapping ErrServerNotFound when the id is
+// not registered.
+func (m *Manager) UpdateServer(server *MCPServer) error {
+	if server == nil {
+		return fmt.Errorf("server cannot be nil")
+	}
+	if server.ID == "" {
+		return fmt.Errorf("server ID cannot be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, err := m.registry.Get(context.Background(), server.ID)
+	if err != nil {
+		return fmt.Errorf("server with ID %s: %w", server.ID, ErrServerNotFound)
+	}
+	if m.tenancy != nil {
+		m.tenancy.Normalize(server)
+		if err := m.tenancy.Validate(server); err != nil {
+			return err
+		}
+	}
+	server.CreatedAt = existing.CreatedAt
+	server.UpdatedAt = time.Now()
+	server.Status = StatusUnknown
+	if err := m.registry.Put(context.Background(), server); err != nil {
+		return fmt.Errorf("failed to store server %s: %w", server.ID, err)
+	}
+	m.dropServiceLocked(server.ID)
+
+	m.logger.Info("Updated MCP server",
+		zap.String("server_id", server.ID),
+		zap.String("tenant_id", server.TenantID),
+		zap.String("managed_by", string(server.ManagedBy)),
+		zap.Bool("enabled", server.IsEnabled()),
+		zap.String("endpoint", server.Endpoint))
+	return nil
+}
+
+// dropServiceLocked stops and forgets this replica's live connection to id.
+// Caller holds m.mu.
+func (m *Manager) dropServiceLocked(id string) {
+	if svc, ok := m.services[id]; ok {
+		if err := svc.Stop(context.Background()); err != nil {
+			m.logger.Warn("Failed to stop service", zap.String("server_id", id), zap.Error(err))
+		}
+		delete(m.services, id)
+	}
 }
 
 // UnregisterServer removes an MCP server
@@ -353,6 +434,13 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 		ctx, obs = withCallObservation(ctx)
 	}
 
+	// Tenancy (Plan #22 C.1): who may call this server, and which tools.
+	srvDef, err := m.authorizeInvoke(ctx, serverID, request, obs)
+	if err != nil {
+		m.updateFailureMetrics()
+		return nil, err
+	}
+
 	callStart := time.Now()
 	response, err := service.Invoke(ctx, request)
 	callDuration := time.Since(callStart)
@@ -371,6 +459,10 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 	}
 
 	m.updateSuccessMetrics()
+
+	if srvDef != nil && request.Method == methodToolsList {
+		response = filterToolsList(response, srvDef)
+	}
 
 	// Boundary processing of tool-call results, ONCE, here at production, before
 	// the agent caches them. Order is scan → reduce (both fail-open — the
@@ -402,6 +494,45 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 		}
 	}
 	return response, nil
+}
+
+// authorizeInvoke applies the tenant policy to one invoke. With the policy off
+// it returns (nil, nil) and costs nothing. With it on it returns the server's
+// definition, or an error: ErrServerDisabled or ErrTenantForbidden for the
+// server, ErrToolNotAllowed for a tools/call outside allowed_tools.
+//
+// A refused tool is recorded as a tool-call event with outcome "blocked". A
+// tenant refusal is not: the event would be attributed to the caller's
+// tenant and would name another tenant's server in it. It is logged instead.
+func (m *Manager) authorizeInvoke(ctx context.Context, serverID string, req *MCPRequest, obs *callObservation) (*MCPServer, error) {
+	p := m.TenantPolicy()
+	if p == nil {
+		return nil, nil
+	}
+	srv, err := m.registry.Get(ctx, serverID)
+	if err != nil {
+		return nil, fmt.Errorf("server with ID %s not found", serverID)
+	}
+	id := identity.FromContext(ctx)
+	if err := p.CheckInvoke(srv, id); err != nil {
+		m.logger.Warn("federation: invoke refused",
+			zap.String("server_id", serverID),
+			zap.String("method", req.Method),
+			zap.String("caller_tenant_id", callerTenant(id)),
+			zap.Error(err))
+		return nil, err
+	}
+	if req.Method == methodToolsCall && !srv.ToolAllowed(toolCallName(req)) {
+		if obs != nil {
+			obs.mu.Lock()
+			obs.blocked = true
+			obs.mu.Unlock()
+		}
+		now := time.Now()
+		m.observeToolCall(ctx, serverID, req, nil, ErrToolNotAllowed, obs, now, 0)
+		return nil, ErrToolNotAllowed
+	}
+	return srv, nil
 }
 
 // observeToolCall records the histogram and hands the record to the observer.
@@ -476,8 +607,10 @@ func toolCallID(ctx context.Context, req *MCPRequest, id *identity.Identity) str
 func (m *Manager) BroadcastRequest(ctx context.Context, request *MCPRequest) ([]*MCPResponse, error) {
 	m.mu.RLock()
 	services := make(map[string]MCPService)
+	caller := identity.FromContext(ctx)
 	for id, service := range m.services {
-		if srv, err := m.registry.Get(ctx, id); err == nil && srv.Status == StatusHealthy {
+		if srv, err := m.registry.Get(ctx, id); err == nil && srv.Status == StatusHealthy &&
+			m.tenancy.CheckInvoke(srv, caller) == nil {
 			services[id] = service
 		}
 	}
@@ -716,16 +849,12 @@ func (m *Manager) watchRegistry() {
 			if !ok {
 				return
 			}
-			if evt.Type != RegistryDelete {
-				continue
-			}
 			m.mu.Lock()
-			if svc, ok := m.services[evt.ID]; ok {
-				if err := svc.Stop(context.Background()); err != nil {
-					m.logger.Warn("Failed to stop service on registry delete",
-						zap.String("server_id", evt.ID), zap.Error(err))
-				}
-				delete(m.services, evt.ID)
+			// With the tenant registry on, a definition can change in place
+			// (PUT), so a put drops the live connection too; the next invoke
+			// rebuilds it from the new definition.
+			if evt.Type == RegistryDelete || (evt.Type == RegistryPut && m.tenancy != nil) {
+				m.dropServiceLocked(evt.ID)
 			}
 			m.mu.Unlock()
 		}
@@ -738,6 +867,9 @@ func (m *Manager) performHealthChecks() {
 	all, _ := m.registry.List(context.Background())
 	servers := make([]string, 0, len(all))
 	for _, server := range all {
+		if m.tenancy != nil && !server.IsEnabled() {
+			continue // a disabled server is not health-checked
+		}
 		if server.HealthCheck.Enabled {
 			servers = append(servers, server.ID)
 		}

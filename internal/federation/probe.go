@@ -250,6 +250,17 @@ func (p *Prober) round(ctx context.Context, wg *sync.WaitGroup) {
 		p.logger.Debug("server probes: list servers failed; skipping round", zap.Error(err))
 		return
 	}
+	if p.m.TenantPolicy() != nil {
+		// A disabled server is not probed, and is pruned like an
+		// unregistered one so its gauge does not read as down.
+		enabled := servers[:0]
+		for _, s := range servers {
+			if s.IsEnabled() {
+				enabled = append(enabled, s)
+			}
+		}
+		servers = enabled
+	}
 	live := make(map[string]bool, len(servers))
 	for _, s := range servers {
 		live[s.ID] = true

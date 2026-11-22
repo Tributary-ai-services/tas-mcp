@@ -23,11 +23,73 @@ type MCPServer struct {
 	// reduce-at-source. Off by default — reduction drops less-relevant chunks,
 	// which suits text/RAG-heavy results but can lose data on structured output,
 	// so it's per-server opt-in (set via the FederatedMCPServer CR).
-	Reduce      bool              `json:"reduce,omitempty"`
+	Reduce bool `json:"reduce,omitempty"`
+
+	// Tenancy (Plan #22 C.1, design §9.6). All five are optional and only
+	// enforced when MCP_TENANT_SERVERS is on. A record written before they
+	// existed decodes with zero values, which the accessors below read as a
+	// platform, operator-managed, enabled server with every tool allowed — so
+	// existing Redis records migrate lazily, on read, and are rewritten with
+	// explicit values on their next write (see TenantPolicy.normalize).
+
+	// TenantID is the owning tenant (one AIQG org). Empty = a platform server
+	// shared by every caller.
+	TenantID string `json:"tenant_id,omitempty"`
+	// OwnerTeamID is the Aether team that owns the server. Informational.
+	OwnerTeamID string `json:"owner_team_id,omitempty"`
+	// ManagedBy is who writes this row: the FederatedMCPServer operator or
+	// AIQG. Each side touches only its own rows. Empty = operator.
+	ManagedBy ManagedBy `json:"managed_by,omitempty"`
+	// AllowedTools is an allowlist over the server's tools/list. Empty = all.
+	AllowedTools []string `json:"allowed_tools,omitempty"`
+	// Enabled is false for a server that is registered but switched off: it is
+	// not listed to callers, not invoked and not probed. Nil = enabled.
+	Enabled *bool `json:"enabled,omitempty"`
+
 	Status      ServerStatus      `json:"status"`
 	HealthCheck HealthCheckConfig `json:"health_check"`
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
+}
+
+// ManagedBy names the writer that owns a registry row.
+type ManagedBy string
+
+// Registry row owners (Plan #22 C.1/C.2).
+const (
+	// ManagedByOperator is the FederatedMCPServer operator (a platform CR).
+	ManagedByOperator ManagedBy = "operator"
+	// ManagedByAIQG is aiqg-dashboard-be (a server configured in AIQG).
+	ManagedByAIQG ManagedBy = "aiqg"
+)
+
+// IsPlatform reports whether s is shared by every caller (no tenant).
+func (s *MCPServer) IsPlatform() bool { return s.TenantID == "" }
+
+// IsEnabled reports whether s may be listed, invoked and probed. A record
+// with no enabled field (written before C.1) is enabled.
+func (s *MCPServer) IsEnabled() bool { return s.Enabled == nil || *s.Enabled }
+
+// Owner returns who manages s, reading an absent field as the operator.
+func (s *MCPServer) Owner() ManagedBy {
+	if s.ManagedBy == "" {
+		return ManagedByOperator
+	}
+	return s.ManagedBy
+}
+
+// ToolAllowed reports whether tool may be listed and called on s. An empty
+// allowlist allows every tool.
+func (s *MCPServer) ToolAllowed(tool string) bool {
+	if len(s.AllowedTools) == 0 {
+		return true
+	}
+	for _, t := range s.AllowedTools {
+		if t == tool {
+			return true
+		}
+	}
+	return false
 }
 
 // Protocol defines the communication protocol for MCP servers
