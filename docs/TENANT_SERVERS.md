@@ -101,28 +101,38 @@ This PR changes no manifest. To turn the feature on:
 
 Plan #22 C.4; design §9.6 "Connections". A connection is one tenant's credentials and parameters for one server. aiqg-dashboard-be stores it encrypted (`aiqg.mcp_connection`, the BYOK envelope) and is the only place it is written. On each invoke, the proxy resolves the caller tenant's connection for the server and injects it. This is the server-side form of aether-be's `injectConnectionParams`.
 
-The feature is off by default. With `MCP_CONNECTION_INJECTION` unset, nothing is resolved or injected.
+The feature is off by default. With `MCP_CONNECTION_INJECTION` unset, nothing is resolved, stripped, refused or injected.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `MCP_CONNECTION_INJECTION` | off | Turns injection on. It needs `IDENTITY_ENABLED` (the tenant comes from the caller's token); without identity it stays off and logs a Warn. |
-| `AIQG_DASHBOARD_URL`, `AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN` | — | The identity validator's settings. The proxy calls `POST /internal/mcp/connections/resolve` on the same service with the same `Internal-Auth` token. |
-| `MCP_CONNECTION_CACHE_TTL` | `60s` | How long a resolved connection, or the answer "none", is kept in memory. A rotation takes effect within this window. Errors are never cached. |
+| `AIQG_DASHBOARD_URL` | — | The identity validator's base URL. The connection endpoints are on the same service. |
+| `MCP_CONNECTIONS_RESOLVE_TOKEN` | — | Sent as `Internal-Auth` to `/internal/mcp/connections/*`. It is a token of its own, not the shared `INTERNAL_AUTH_TOKEN`, so the router (which holds the shared one) cannot read connection secrets. Without it injection stays off. Never logged. |
+| `MCP_CONNECTION_SERVERS` | empty | `id=kind,id=kind`: the connection kind a **platform** server takes, e.g. `dbhub=database_dsn`. A tenant server says so in its record (`connection_kind`, written by AIQG). |
+| `MCP_CONNECTION_CACHE_TTL` | `60s` | How long a resolved connection, the answer "none", and the cross-tenant server list are kept in memory. A rotation takes effect within this window. Errors are never cached. |
+
+### Which servers take connections
+
+A server **takes connections** when its record declares a `connection_kind`, when `MCP_CONNECTION_SERVERS` names it, or when any tenant holds a live connection for it. The last comes from `POST /internal/mcp/connections/servers`, which lists, for each server, the kinds of its connections and the tool arguments its DSN connections inject. It names no tenant and carries no secret.
 
 ### The rules
 
-- **The tenant comes from the resolved `TAS-Auth` token**, never from the body or a self-asserted header. An unattributed call resolves nothing and gets nothing injected.
+- **The tenant comes from the resolved `TAS-Auth` token**, never from the body or a self-asserted header.
 - **A connection is keyed by `(tenant_id, server_id)`**, and nothing else. On a platform server, tenant A's call injects A's connection and tenant B's call injects B's. A tenant with no connection for the server gets nothing, and the server's own `auth` applies.
-- **Fail closed.** If the resolver cannot answer, or a connection cannot be applied (an OAuth grant fails, a token URL breaks the egress rule), the call is refused with **503** and the upstream server is not contacted. Running the call without the tenant's connection could reach the server's default target instead of the tenant's. The response carries only a generic message; the detail is logged at Warn.
-- **Injected values never reach the proxy's own outputs.** The connection is added to a copy of the request that only the upstream call sees. The boundary scanner, the reducer and the tool-call event see the caller's request. Every injected value (the secret, the full header value, an OAuth access token, a DSN and its password, raw and escaped) is replaced with `[REDACTED]` in the response, in the error text and therefore in the log lines, before the scanner runs, so a finding cannot quote one either. Values shorter than 4 characters are not redacted.
+- **Unattributed calls.** A call with no token, or an unknown one, gets nothing injected and is served (observe mode, Q12). But when the token **could not be checked** (identity result `validator_unavailable` or `validator_unconfigured`) and the server takes connections, or the server list cannot be read, the call is refused with **503**. Otherwise a validator outage would run the tenant's call on the server's default credentials.
+- **Suspended accounts.** A suspended account's call to a server that takes connections, or for which that tenant has one, is refused with **403**, as aiqg-dashboard-be's data plane refuses a suspended token. Its connection is never used, and no OAuth grant runs with its secret. A suspended call to a server without connections is still served.
+- **Fail closed.** If the resolver cannot answer, or a connection cannot be applied (an OAuth grant fails, a host breaks the egress rule), the call is refused with **503** and the upstream server is not contacted. The response carries only a generic message; the detail is logged at Warn.
+- **No caller-chosen database.** On a server that takes `database_dsn` connections, a caller-supplied `_connection` (and every argument name a tenant's DSN connection uses) is removed from `tools/call` for every caller, whether or not the caller's tenant has a connection. While the server list cannot be read, `_connection` is removed from every call.
+- **Egress (Q13) for stored values too.** A DSN's host and an OAuth `token_url` pass the same rule as a tenant server endpoint: an in-cluster host must be a service in `MCP_TENANT_CLUSTER_NAMESPACES`, and any other host must be on the tenant's `MCP_TENANT_EGRESS_ALLOWLIST` (an IP literal only when it is listed itself). Other cluster names (`*.svc`, `*.cluster.local`, `localhost`) are refused. With `MCP_TENANT_SERVERS` off there is no allowlist, so only public DNS names pass: IP literals, bare names and cluster names are refused. A token URL must be `https`, and **redirects from a token endpoint are refused**, because the target of a redirect passed no egress check and would receive the client secret.
+- **Injected values never reach the proxy's own outputs.** The connection is added to a copy of the request that only the upstream call sees. The boundary scanner, the reducer and the tool-call event see the caller's request. Every injected value (the secret, the full header value, an OAuth access token, a DSN and its password) is replaced with `[REDACTED]` in the response (map keys included), in `error.message`, in the error text and therefore in the log lines, before the scanner runs, so a finding cannot quote one either. Each value is redacted in its raw, JSON-escaped (with and without HTML escaping), URL-escaped and base64 (standard and URL, padded and raw) forms. An upstream error body is redacted **before** it is cut to its 256-byte preview, and a prefix of 8 or more characters of a secret left at the cut is redacted too. Values shorter than 4 characters are not redacted.
 
 ### Kinds
 
 | Kind | Params (non-secret) | Secret | What the proxy does |
 |---|---|---|---|
 | `header` | `header` (default `Authorization`), `prefix` (e.g. `Bearer `) | the header value | Sets `header: prefix+secret` on every call, replacing a header of the same name from the server's own `auth`. |
-| `oauth_client_credentials` | `client_id`, `token_url`, `scopes` (space-separated), `audience`, `header` | the client secret | Runs the client-credentials grant and sets `Authorization: Bearer <token>`. The token is cached per tenant, server, connection id and version until 30 s before it expires, so a rotation fetches a new one. With `MCP_TENANT_SERVERS` on, `token_url` must pass the same egress rule as a tenant server endpoint; otherwise it must be `https`. |
-| `database_dsn` | `argument` (default `_connection`), `format` (`object` or `string`) | the DSN | On `tools/call` only, sets `arguments[argument]`: for `object`, aether-be's `connectionInfo` shape (`host`, `port`, `username`, `password`, `database`, `protocol`, `ssl_mode`); for `string`, the DSN itself. It replaces a caller-supplied argument of the same name. |
+| `oauth_client_credentials` | `client_id`, `token_url`, `scopes` (space-separated), `audience`, `header` | the client secret | Runs the client-credentials grant and sets `Authorization: Bearer <token>`. The token is cached per tenant, server, connection id and version until 30 s before it expires, so a rotation fetches a new one. |
+| `database_dsn` | `argument` (default `_connection`), `format` (`object` or `string`) | the DSN | On `tools/call` only, sets `arguments[argument]`: for `object`, aether-be's `connectionInfo` shape (`host`, `port`, `username`, `password`, `database`, `protocol`, `ssl_mode`); for `string`, the DSN itself. It also sends `TAS-Tenant-Id: <tenant>` so a database bridge keys its sessions by tenant (tas-mcp-servers bridge). |
 
 ### Test connection (`TAS-MCP-On-Behalf-Of-Tenant`)
 

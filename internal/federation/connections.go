@@ -24,11 +24,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,13 +107,32 @@ func (c *Connection) String() string {
 func (c *Connection) GoString() string { return c.String() }
 
 // ConnectionResolver returns the caller tenant's connection for a server, or
-// (nil, nil) when the tenant has none.
+// (nil, nil) when the tenant has none. Servers lists every server that any
+// tenant holds a live connection for, with the kinds and the tool arguments
+// those connections inject; the proxy uses it to fail closed and to strip
+// caller-supplied DSN arguments on calls it cannot attribute.
 type ConnectionResolver interface {
 	Resolve(ctx context.Context, tenantID, serverID string) (*Connection, error)
+	Servers(ctx context.Context) (map[string]ServerConnections, error)
 }
 
-// connectionsResolvePath is appended to aiqg-dashboard-be's base URL.
-const connectionsResolvePath = "/internal/mcp/connections/resolve"
+// ServerConnections is what the proxy knows of one server's connections
+// across every tenant. It carries no tenant and no secret.
+type ServerConnections struct {
+	Kinds     []string `json:"kinds"`
+	Arguments []string `json:"arguments,omitempty"`
+}
+
+// connectionsResolvePath and connectionsServersPath are appended to
+// aiqg-dashboard-be's base URL.
+const (
+	connectionsResolvePath = "/internal/mcp/connections/resolve"
+	connectionsServersPath = "/internal/mcp/connections/servers"
+)
+
+// ResolveTokenHeader carries MCP_CONNECTIONS_RESOLVE_TOKEN, a token that
+// serves the connection endpoints only (not the shared INTERNAL_AUTH_TOKEN).
+const ResolveTokenHeader = "Internal-Auth" // #nosec G101 -- a header name, not a credential
 
 // DefaultConnectionResolveTimeout bounds one resolve call (same budget as the
 // identity validator: a cold BestEffort dashboard-be replica).
@@ -132,7 +154,7 @@ func NewDashboardConnectionResolver(baseURL, internalAuthToken string) (*Dashboa
 		return nil, errors.New("federation: connection resolver needs the dashboard URL")
 	}
 	if internalAuthToken == "" {
-		return nil, errors.New("federation: connection resolver needs the internal-auth token")
+		return nil, errors.New("federation: connection resolver needs MCP_CONNECTIONS_RESOLVE_TOKEN")
 	}
 	return &DashboardConnectionResolver{
 		HTTP:              &http.Client{Timeout: DefaultConnectionResolveTimeout},
@@ -141,21 +163,47 @@ func NewDashboardConnectionResolver(baseURL, internalAuthToken string) (*Dashboa
 	}, nil
 }
 
-// Resolve implements ConnectionResolver.
-func (d *DashboardConnectionResolver) Resolve(ctx context.Context, tenantID, serverID string) (*Connection, error) {
-	body, err := json.Marshal(map[string]string{"tenant_id": tenantID, "server_id": serverID})
+func (d *DashboardConnectionResolver) post(ctx context.Context, path string, body interface{}) (*http.Response, error) {
+	b, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	// BaseURL is operator config (AIQG_DASHBOARD_URL), never request input.
 	// #nosec G704 -- the URL is fixed at startup from config, not caller-controlled
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.BaseURL+connectionsResolvePath, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.BaseURL+path, bytes.NewReader(b))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Internal-Auth", d.InternalAuthToken)
-	resp, err := d.HTTP.Do(req) // #nosec G704 -- see above
+	req.Header.Set(ResolveTokenHeader, d.InternalAuthToken)
+	return d.HTTP.Do(req) // #nosec G704 -- see above
+}
+
+// Servers implements ConnectionResolver.
+func (d *DashboardConnectionResolver) Servers(ctx context.Context) (map[string]ServerConnections, error) {
+	resp, err := d.post(ctx, connectionsServersPath, map[string]string{})
+	if err != nil {
+		return nil, fmt.Errorf("connection servers: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("connection servers: unexpected status %d", resp.StatusCode)
+	}
+	var out struct {
+		Servers map[string]ServerConnections `json:"servers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("connection servers: decode: %w", err)
+	}
+	if out.Servers == nil {
+		out.Servers = map[string]ServerConnections{}
+	}
+	return out.Servers, nil
+}
+
+// Resolve implements ConnectionResolver.
+func (d *DashboardConnectionResolver) Resolve(ctx context.Context, tenantID, serverID string) (*Connection, error) {
+	resp, err := d.post(ctx, connectionsResolvePath, map[string]string{"tenant_id": tenantID, "server_id": serverID})
 	if err != nil {
 		return nil, fmt.Errorf("connection resolve: %w", err)
 	}
@@ -192,8 +240,30 @@ type CachingConnectionResolver struct {
 	Max   int
 	Now   func() time.Time
 
-	mu      sync.Mutex
-	entries map[string]connCacheEntry
+	mu         sync.Mutex
+	entries    map[string]connCacheEntry
+	servers    map[string]ServerConnections
+	serversExp time.Time
+}
+
+// Servers implements ConnectionResolver, cached for TTL; errors are not cached.
+func (c *CachingConnectionResolver) Servers(ctx context.Context) (map[string]ServerConnections, error) {
+	now := c.Now()
+	c.mu.Lock()
+	if c.servers != nil && now.Before(c.serversExp) {
+		out := c.servers
+		c.mu.Unlock()
+		return out, nil
+	}
+	c.mu.Unlock()
+	out, err := c.Inner.Servers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	c.servers, c.serversExp = out, now.Add(c.TTL)
+	c.mu.Unlock()
+	return out, nil
 }
 
 // NewCachingConnectionResolver wraps inner (ttl<=0 → DefaultConnectionCacheTTL).
@@ -267,6 +337,10 @@ func applyCallHeaders(ctx context.Context, req *http.Request) {
 	}
 }
 
+// TenantHeader tells a database bridge which tenant an injected DSN belongs
+// to, so it never reuses one tenant's session for another.
+const TenantHeader = "TAS-Tenant-Id"
+
 // injection is what one connection adds to one call.
 type injection struct {
 	headers http.Header
@@ -295,9 +369,19 @@ const oauthDefaultLifetime = 5 * time.Minute
 // oauthTimeout bounds one token request.
 const oauthTimeout = 10 * time.Second
 
+// ErrAccountSuspended — the caller's token belongs to a suspended account and
+// the call would use a stored connection. Matches aiqg-dashboard-be's
+// data-plane 403 (account_suspended): a suspended tenant's credentials are
+// never used.
+var ErrAccountSuspended = errors.New("forbidden: account suspended; its stored connections are not used")
+
 // ConnectionInjector applies connections to calls.
 type ConnectionInjector struct {
 	Resolver ConnectionResolver
+	// Declared maps a server id to the connection kind it takes
+	// (MCP_CONNECTION_SERVERS, for platform servers whose CR cannot say so).
+	// A tenant server declares its kind in its record (connection_kind).
+	Declared map[string]string
 	// Policy checks an OAuth token URL the way a tenant server endpoint is
 	// checked (Q13). Nil = https only.
 	Policy *TenantPolicy
@@ -313,6 +397,84 @@ func (ci *ConnectionInjector) now() time.Time {
 		return ci.Now()
 	}
 	return time.Now()
+}
+
+// capability is what the proxy knows of a server's connections: the kinds it
+// takes and the tool arguments a DSN connection injects. known is false when
+// the cross-tenant list could not be read (AIQG unreachable).
+type capability struct {
+	kinds     map[string]bool
+	arguments []string
+	known     bool
+}
+
+func (c capability) takesConnections() bool { return len(c.kinds) > 0 }
+
+// capabilityOf merges the server's declared kind with every tenant's live
+// connections for it.
+func (ci *ConnectionInjector) capabilityOf(ctx context.Context, srv *MCPServer, serverID string) capability {
+	c := capability{kinds: map[string]bool{}, known: true}
+	declare := func(kind string) {
+		if kind == "" || kind == "none" {
+			return
+		}
+		c.kinds[kind] = true
+		if kind == ConnKindDatabaseDSN && !slices.Contains(c.arguments, defaultConnArgument) {
+			c.arguments = append(c.arguments, defaultConnArgument)
+		}
+	}
+	if srv != nil {
+		declare(srv.ConnectionKind)
+	}
+	declare(ci.Declared[serverID])
+	all, err := ci.Resolver.Servers(ctx)
+	if err != nil {
+		c.known = false
+		return c
+	}
+	if sc, ok := all[serverID]; ok {
+		for _, k := range sc.Kinds {
+			declare(k)
+		}
+		for _, a := range sc.Arguments {
+			if a != "" && !slices.Contains(c.arguments, a) {
+				c.arguments = append(c.arguments, a)
+			}
+		}
+	}
+	return c
+}
+
+// withoutArguments returns a copy of a tools/call request without the named
+// arguments (nil when none was present). A caller never chooses the database
+// a DSN server connects to: only a stored, egress-checked connection does.
+func withoutArguments(req *MCPRequest, names []string) *MCPRequest {
+	args, ok := req.Params["arguments"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	found := false
+	for _, n := range names {
+		if _, ok := args[n]; ok {
+			found = true
+		}
+	}
+	if !found {
+		return nil
+	}
+	c := *req
+	c.Params = make(map[string]interface{}, len(req.Params))
+	for k, v := range req.Params {
+		c.Params[k] = v
+	}
+	clean := make(map[string]interface{}, len(args))
+	for k, v := range args {
+		if !slices.Contains(names, k) {
+			clean[k] = v
+		}
+	}
+	c.Params["arguments"] = clean
+	return &c
 }
 
 // prepare resolves tenantID's connection for serverID and builds what it adds
@@ -347,12 +509,21 @@ func (ci *ConnectionInjector) prepare(ctx context.Context, tenantID, serverID st
 		if req.Method != methodToolsCall {
 			return inj, nil // a DSN is a tool argument; other methods carry none
 		}
-		value, secrets, err := dsnValue(conn.Secret, paramOr(conn.Params, "format", connFormatObject))
+		value, secrets, host, err := dsnValue(conn.Secret, paramOr(conn.Params, "format", connFormatObject))
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrConnectionUnavailable, err)
 		}
 		inj.red.add(secrets...)
+		// Q13 for the database host too: a stored DSN must not point the
+		// server at cluster infrastructure or an unlisted host (SSRF).
+		if err := ci.checkHost(tenantID, host); err != nil {
+			return nil, fmt.Errorf("%w: database host: %w", ErrConnectionUnavailable, err)
+		}
 		inj.req = withToolArgument(req, paramOr(conn.Params, "argument", defaultConnArgument), value)
+		// The bridge keys its database sessions by tenant as well as by the
+		// full connection (tas-mcp-servers bridge). Sent for DSNs only: the
+		// server is ours or the tenant's own database proxy.
+		inj.headers = http.Header{TenantHeader: {tenantID}}
 	default:
 		return nil, fmt.Errorf("%w: unknown connection kind %q", ErrConnectionUnavailable, conn.Kind)
 	}
@@ -411,32 +582,33 @@ var defaultDBPorts = map[string]int{"postgres": portPostgres, "postgresql": port
 
 // dsnValue turns a DSN into the injected argument and lists the values to
 // redact (the DSN and its password, raw and escaped).
-func dsnValue(dsn, format string) (value interface{}, secrets []string, err error) {
+func dsnValue(dsn, format string) (value interface{}, secrets []string, host string, err error) {
 	u, perr := url.Parse(dsn)
 	if perr != nil || u.Scheme == "" || u.Host == "" {
-		return nil, nil, errors.New("database DSN is not a URL")
+		return nil, nil, "", errors.New("database DSN is not a URL")
 	}
 	pw, _ := u.User.Password()
-	secrets = []string{dsn, pw, url.QueryEscape(pw), url.PathEscape(pw)}
+	secrets = []string{dsn, pw}
+	host = u.Hostname()
 	if format == connFormatString {
-		return dsn, secrets, nil
+		return dsn, secrets, host, nil
 	}
 	if format != connFormatObject {
-		return nil, nil, fmt.Errorf("database DSN format %q must be %q or %q", format, connFormatObject, connFormatString)
+		return nil, nil, "", fmt.Errorf("database DSN format %q must be %q or %q", format, connFormatObject, connFormatString)
 	}
 	scheme := strings.ToLower(u.Scheme)
 	port := defaultDBPorts[scheme]
 	if p := u.Port(); p != "" {
 		n, aerr := strconv.Atoi(p)
 		if aerr != nil {
-			return nil, nil, errors.New("database DSN port is not a number")
+			return nil, nil, "", errors.New("database DSN port is not a number")
 		}
 		port = n
 	}
 	return dbConnection{
 		Host: u.Hostname(), Port: port, Username: u.User.Username(), Password: pw,
 		Database: strings.TrimPrefix(u.Path, "/"), Protocol: scheme, SSLMode: u.Query().Get("sslmode"),
-	}, secrets, nil
+	}, secrets, host, nil
 }
 
 // oauthToken returns a cached or fresh access token for conn.
@@ -463,10 +635,14 @@ func (ci *ConnectionInjector) oauthToken(ctx context.Context, tenantID, serverID
 	if a := conn.Params["audience"]; a != "" {
 		cfg.EndpointParams = url.Values{"audience": {a}}
 	}
-	hc := ci.HTTP
-	if hc == nil {
-		hc = &http.Client{Timeout: oauthTimeout}
+	hc := &http.Client{Timeout: oauthTimeout}
+	if ci.HTTP != nil {
+		c := *ci.HTTP
+		hc = &c
 	}
+	// Never follow a redirect: the token URL passed the egress check, the
+	// URL it redirects to did not (and would receive the client secret).
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return errOAuthRedirect }
 	tctx, cancel := context.WithTimeout(context.WithValue(ctx, oauth2.HTTPClient, hc), oauthTimeout)
 	defer cancel()
 	tok, err := cfg.Token(tctx)
@@ -489,57 +665,133 @@ func (ci *ConnectionInjector) oauthToken(ctx context.Context, tenantID, serverID
 	return tok.AccessToken, nil
 }
 
-// checkTokenURL refuses a token URL the proxy should not call: with the tenant
-// registry on, the same egress rule as a tenant server endpoint (Q13);
-// otherwise https only.
+// errOAuthRedirect refuses a token endpoint's redirect.
+var errOAuthRedirect = errors.New("oauth token endpoint redirected; redirects are refused")
+
+// checkTokenURL refuses a token URL the proxy should not call: https always;
+// with the tenant registry on, the same egress rule as a tenant server
+// endpoint (Q13); otherwise a public DNS name only (basicHostCheck).
 func (ci *ConnectionInjector) checkTokenURL(tenantID, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != schemeHTTPS || u.Host == "" || u.User != nil {
+		return fmt.Errorf("%w: token_url must be an https URL without credentials", ErrEgressDenied)
+	}
 	if ci.Policy != nil {
 		return ci.Policy.checkEgress(tenantID, raw)
 	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != schemeHTTPS || u.Host == "" {
-		return fmt.Errorf("%w: token_url must be an https URL", ErrEgressDenied)
+	return basicHostCheck(u.Hostname())
+}
+
+// checkHost applies the egress rule to a database host.
+func (ci *ConnectionInjector) checkHost(tenantID, host string) error {
+	if ci.Policy != nil {
+		return ci.Policy.checkHost(tenantID, host, false, false)
 	}
-	return nil
+	return basicHostCheck(host)
 }
 
 // redactor removes injected values from everything the proxy produces.
-type redactor struct{ secrets []string }
+//
+// Each secret is redacted in every form an upstream is likely to echo it in:
+// raw; JSON-escaped (with and without Go's HTML escaping of <, > and &);
+// URL query- and path-escaped; and base64 (standard and URL, padded and raw).
+// A string truncated for a preview has any prefix of 8 or more characters of
+// a secret at its cut redacted too.
+type redactor struct {
+	forms []string // every form of every secret, longest first
+}
+
+// minCutPrefix is the shortest secret prefix redacted at a truncation cut.
+const minCutPrefix = 8
+
+// secretForms returns v and the encodings it may be echoed in.
+func secretForms(v string) []string {
+	forms := []string{v, url.QueryEscape(v), url.PathEscape(v),
+		base64.StdEncoding.EncodeToString([]byte(v)), base64.URLEncoding.EncodeToString([]byte(v)),
+		base64.RawStdEncoding.EncodeToString([]byte(v)), base64.RawURLEncoding.EncodeToString([]byte(v))}
+	if b, err := json.Marshal(v); err == nil {
+		forms = append(forms, string(b[1:len(b)-1])) // HTML-escaped (\u003c)
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if enc.Encode(v) == nil {
+		b := bytes.TrimSpace(buf.Bytes())
+		forms = append(forms, string(b[1:len(b)-1]))
+	}
+	return forms
+}
 
 func (r *redactor) add(vals ...string) {
 	for _, v := range vals {
 		if len(v) < minRedactLen {
 			continue
 		}
-		dup := false
-		for _, s := range r.secrets {
-			if s == v {
-				dup = true
-				break
+		for _, f := range secretForms(v) {
+			if len(f) < minRedactLen || slices.Contains(r.forms, f) {
+				continue
 			}
-		}
-		if !dup {
-			r.secrets = append(r.secrets, v)
+			r.forms = append(r.forms, f)
 		}
 	}
 	// Longest first, so a DSN is replaced whole before its password is.
-	for i := 1; i < len(r.secrets); i++ {
-		for j := i; j > 0 && len(r.secrets[j]) > len(r.secrets[j-1]); j-- {
-			r.secrets[j], r.secrets[j-1] = r.secrets[j-1], r.secrets[j]
-		}
-	}
+	sort.SliceStable(r.forms, func(i, j int) bool { return len(r.forms[i]) > len(r.forms[j]) })
 }
 
 func (r *redactor) str(s string) string {
 	if r == nil {
 		return s
 	}
-	for _, v := range r.secrets {
+	for _, v := range r.forms {
 		if strings.Contains(s, v) {
 			s = strings.ReplaceAll(s, v, redactedMarker)
 		}
 	}
 	return s
+}
+
+// cut redacts a secret prefix (at least minCutPrefix long) that a truncation
+// left at the end of s.
+func (r *redactor) cut(s string) string {
+	if r == nil {
+		return s
+	}
+	for _, v := range r.forms {
+		for k := len(v) - 1; k >= minCutPrefix; k-- {
+			if strings.HasSuffix(s, v[:k]) {
+				return s[:len(s)-k] + redactedMarker
+			}
+		}
+	}
+	return s
+}
+
+// preview is the redacted, truncated form of an upstream body for an error:
+// redact the whole body first, then truncate, then redact a prefix at the cut.
+func (r *redactor) preview(data []byte, n int) string {
+	s := r.str(string(data))
+	if len(s) > n {
+		s = r.cut(s[:n])
+	}
+	return s
+}
+
+type redactorKey struct{}
+
+// withRedactor carries the call's redactor to the upstream clients, which
+// build error text from upstream bodies before the manager sees it.
+func withRedactor(ctx context.Context, r *redactor) context.Context {
+	if r == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, redactorKey{}, r)
+}
+
+// bodyPreview is what an upstream client puts in an error: the body,
+// redacted for this call's injected values, then truncated.
+func bodyPreview(ctx context.Context, data []byte) string {
+	r, _ := ctx.Value(redactorKey{}).(*redactor)
+	return r.preview(data, errBodyPreview)
 }
 
 func (r *redactor) value(v interface{}) interface{} {
@@ -549,7 +801,7 @@ func (r *redactor) value(v interface{}) interface{} {
 	case map[string]interface{}:
 		out := make(map[string]interface{}, len(t))
 		for k, x := range t {
-			out[k] = r.value(x)
+			out[r.str(k)] = r.value(x)
 		}
 		return out
 	case []interface{}:
@@ -578,7 +830,7 @@ func (r *redactor) value(v interface{}) interface{} {
 }
 
 func (r *redactor) response(resp *MCPResponse) *MCPResponse {
-	if r == nil || resp == nil || len(r.secrets) == 0 {
+	if r == nil || resp == nil || len(r.forms) == 0 {
 		return resp
 	}
 	c := *resp
@@ -603,7 +855,7 @@ func (e *redactedError) Error() string { return e.msg }
 func (e *redactedError) Unwrap() error { return e.inner }
 
 func (r *redactor) err(err error) error {
-	if r == nil || err == nil || len(r.secrets) == 0 {
+	if r == nil || err == nil || len(r.forms) == 0 {
 		return err
 	}
 	if s := r.str(err.Error()); s != err.Error() {

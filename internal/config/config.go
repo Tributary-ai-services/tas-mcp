@@ -78,11 +78,16 @@ type Config struct {
 // connection for the server from aiqg-dashboard-be and injects it.
 type ConnectionInjectionConfig struct {
 	Enabled bool `json:"enabled"`
-	// DashboardURL and DashboardInternalAuthToken are the identity
-	// validator's (AIQG_DASHBOARD_URL, AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN):
-	// the resolve endpoint is on the same service behind the same token.
-	DashboardURL               string `json:"dashboard_url,omitempty"`
-	DashboardInternalAuthToken string `json:"-"`
+	// DashboardURL is the identity validator's (AIQG_DASHBOARD_URL): the
+	// resolve endpoint is on the same service.
+	DashboardURL string `json:"dashboard_url,omitempty"`
+	// ResolveToken is MCP_CONNECTIONS_RESOLVE_TOKEN: a token that opens the
+	// connection endpoints only, distinct from the shared
+	// INTERNAL_AUTH_TOKEN the router also holds. Never logged.
+	ResolveToken string `json:"-"`
+	// Servers is MCP_CONNECTION_SERVERS, "id=kind,id=kind": the connection
+	// kind each platform server takes (its CR cannot say so).
+	Servers map[string]string `json:"servers,omitempty"`
 	// CacheTTL is how long a resolved connection is reused (default 60s).
 	// Rotation takes effect within it.
 	CacheTTL time.Duration `json:"cache_ttl,omitempty"`
@@ -420,10 +425,11 @@ func Load() *Config {
 
 	if getEnvAsBool("MCP_CONNECTION_INJECTION", false) {
 		config.ConnectionInjection = &ConnectionInjectionConfig{
-			Enabled:                    true,
-			DashboardURL:               getEnv("AIQG_DASHBOARD_URL", ""),
-			DashboardInternalAuthToken: getEnv("AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN", ""),
-			CacheTTL:                   getEnvAsDuration("MCP_CONNECTION_CACHE_TTL", DefaultConnectionCacheTTL),
+			Enabled:      true,
+			DashboardURL: getEnv("AIQG_DASHBOARD_URL", ""),
+			ResolveToken: getEnv("MCP_CONNECTIONS_RESOLVE_TOKEN", ""),
+			Servers:      parseConnectionServers(getEnv("MCP_CONNECTION_SERVERS", "")),
+			CacheTTL:     getEnvAsDuration("MCP_CONNECTION_CACHE_TTL", DefaultConnectionCacheTTL),
 		}
 	}
 
@@ -437,6 +443,18 @@ func Load() *Config {
 	}
 
 	return config
+}
+
+// parseConnectionServers reads "id=kind,id=kind"; malformed pairs are skipped.
+func parseConnectionServers(raw string) map[string]string {
+	out := map[string]string{}
+	for _, pair := range strings.Split(raw, ",") {
+		id, kind, ok := strings.Cut(strings.TrimSpace(pair), "=")
+		if ok && strings.TrimSpace(id) != "" && strings.TrimSpace(kind) != "" {
+			out[strings.TrimSpace(id)] = strings.TrimSpace(kind)
+		}
+	}
+	return out
 }
 
 // loadTenantServersConfig loads the tenant-scoped registry configuration.

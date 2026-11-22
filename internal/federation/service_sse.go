@@ -105,7 +105,7 @@ func (c *SSEClient) Call(ctx context.Context, method string, params map[string]i
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("%s returned %s: %w: %s", c.server.ID, resp.Status, &upstreamStatusError{code: resp.StatusCode},
-			string(data[:min(len(data), errBodyPreview)]))
+			bodyPreview(ctx, data))
 	}
 
 	rpc, err := parseJSONRPCResponse(data)

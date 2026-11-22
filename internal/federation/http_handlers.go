@@ -423,6 +423,10 @@ func (h *HTTPHandlers) invokeStatus(err error) int {
 		// Only produced with MCP_CONNECTION_INJECTION on: retryable.
 		return http.StatusServiceUnavailable
 	}
+	if errors.Is(err, ErrAccountSuspended) {
+		// Only produced with MCP_CONNECTION_INJECTION on; the gateway's 403.
+		return http.StatusForbidden
+	}
 	if h.tenancy() == nil {
 		return http.StatusInternalServerError
 	}

@@ -256,7 +256,7 @@ func (c *HTTPClient) Call(ctx context.Context, method string, params map[string]
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("%s returned %s: %w: %s", c.server.ID, resp.Status, &upstreamStatusError{code: resp.StatusCode},
-			string(data[:min(len(data), errBodyPreview)]))
+			bodyPreview(ctx, data))
 	}
 	if len(data) == 0 {
 		return map[string]interface{}{}, nil

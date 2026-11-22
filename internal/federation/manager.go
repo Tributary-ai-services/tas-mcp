@@ -3,6 +3,7 @@ package federation
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -84,11 +85,17 @@ func (m *Manager) SetConnectionInjector(ci *ConnectionInjector) {
 	m.connections = ci
 }
 
-// injectConnection resolves the caller tenant's connection for serverID and
-// returns the context and request the upstream call uses, plus the redactor
-// for everything the call produces. The tenant is the one the caller's
-// TAS-Auth token resolved to; an unattributed caller gets nothing injected.
-// With injection off it returns (ctx, req, nil, nil).
+// injectConnection decides what the upstream call carries (Plan #22 C.4) and
+// returns the context and request it uses, plus the redactor for everything
+// the call produces. With injection off it returns (ctx, req, nil, nil).
+//
+//   - A caller-supplied DSN argument is stripped on a server that takes
+//     database_dsn connections, from every caller.
+//   - The tenant is the one the caller's TAS-Auth token resolved to. An
+//     unattributed caller gets nothing injected; if the reason is that the
+//     token could not be checked (validator unavailable or unconfigured) and
+//     the server takes connections, the call is refused (fail closed).
+//   - A suspended account's stored connection is never used: 403.
 func (m *Manager) injectConnection(ctx context.Context, serverID string, req *MCPRequest) (context.Context, *MCPRequest, *redactor, error) {
 	m.mu.RLock()
 	ci := m.connections
@@ -96,12 +103,27 @@ func (m *Manager) injectConnection(ctx context.Context, serverID string, req *MC
 	if ci == nil {
 		return ctx, req, nil, nil
 	}
-	tenant := callerTenant(identity.FromContext(ctx))
+	srv, _ := m.registry.Get(ctx, serverID)
+	capab := ci.capabilityOf(ctx, srv, serverID)
+	out := stripCallerDSN(req, capab)
+
+	id := identity.FromContext(ctx)
+	tenant := callerTenant(id)
 	if tenant == "" {
+		if err := m.refuseUncheckedCaller(id, serverID, capab); err != nil {
+			return ctx, req, nil, err
+		}
 		ConnectionInjections.WithLabelValues("unattributed").Inc()
-		return ctx, req, nil, nil
+		return ctx, out, nil, nil
 	}
-	inj, err := ci.prepare(ctx, tenant, serverID, req)
+	if id.Suspended {
+		if err := m.refuseSuspended(ctx, ci, tenant, serverID, capab); err != nil {
+			return ctx, req, nil, err
+		}
+		ConnectionInjections.WithLabelValues("none").Inc()
+		return ctx, out, nil, nil
+	}
+	inj, err := ci.prepare(ctx, tenant, serverID, out)
 	if err != nil {
 		ConnectionInjections.WithLabelValues("failed").Inc()
 		// err never carries a connection's secret: prepare builds its own
@@ -115,14 +137,65 @@ func (m *Manager) injectConnection(ctx context.Context, serverID string, req *MC
 	}
 	if inj == nil {
 		ConnectionInjections.WithLabelValues("none").Inc()
-		return ctx, req, nil, nil
+		return ctx, out, nil, nil
 	}
 	ConnectionInjections.WithLabelValues("injected").Inc()
-	out := req
 	if inj.req != nil {
 		out = inj.req
 	}
-	return withCallHeaders(ctx, inj.headers), out, inj.red, nil
+	return withRedactor(withCallHeaders(ctx, inj.headers), inj.red), out, inj.red, nil
+}
+
+// stripCallerDSN removes caller-supplied DSN arguments from a tools/call on
+// a server that takes database_dsn connections; while the server list is
+// unknown, the default argument name is removed from every call.
+func stripCallerDSN(req *MCPRequest, capab capability) *MCPRequest {
+	if req.Method != methodToolsCall {
+		return req
+	}
+	strip := capab.arguments
+	if !capab.known && !slices.Contains(strip, defaultConnArgument) {
+		strip = append(slices.Clone(strip), defaultConnArgument)
+	}
+	if c := withoutArguments(req, strip); c != nil {
+		ConnectionInjections.WithLabelValues("stripped").Inc()
+		return c
+	}
+	return req
+}
+
+// refuseUncheckedCaller fails closed when the caller's token could not be
+// checked and the server takes connections (or that is unknown): serving it
+// unattributed would run a tenant's call on the server's own credentials.
+func (m *Manager) refuseUncheckedCaller(id *identity.Identity, serverID string, capab capability) error {
+	if id == nil || (id.Result != identity.ResultValidatorUnavailable && id.Result != identity.ResultValidatorUnconfigured) {
+		return nil
+	}
+	if capab.known && !capab.takesConnections() {
+		return nil
+	}
+	ConnectionInjections.WithLabelValues("failed").Inc()
+	m.logger.Warn("federation: caller could not be checked and the server takes connections; call refused",
+		zap.String("server_id", serverID), zap.String("identity_result", id.Result))
+	return ErrConnectionUnavailable
+}
+
+// refuseSuspended refuses a suspended account on a server where its stored
+// connection would be used (or the server takes connections). Checked before
+// prepare, so no OAuth grant runs with the suspended tenant's secret.
+func (m *Manager) refuseSuspended(ctx context.Context, ci *ConnectionInjector, tenant, serverID string, capab capability) error {
+	refuse := capab.takesConnections()
+	if !refuse {
+		conn, err := ci.Resolver.Resolve(ctx, tenant, serverID)
+		refuse = err != nil || conn != nil
+	}
+	if !refuse {
+		return nil
+	}
+	ConnectionInjections.WithLabelValues("suspended").Inc()
+	m.logger.Warn("federation: suspended account on a server that takes connections; call refused",
+		zap.String("server_id", serverID), zap.String("caller_tenant_id", tenant))
+	return ErrAccountSuspended
 }
 
 // SetTenantPolicy turns the tenant-scoped registry on (non-nil) or off (nil).

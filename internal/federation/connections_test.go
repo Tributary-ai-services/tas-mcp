@@ -31,7 +31,7 @@ const (
 	secretB      = "sk-live-BBBB-tenant-b-key-0002"
 	secretASrvA  = "sk-live-AAAA-own-crm-key-0003"
 	dsnPassword  = "Pw-d0nt-leak-me!"
-	dsnA         = "postgres://alice:" + dsnPassword + "@db.tenant-a.svc:6543/sales?sslmode=require"
+	dsnA         = "postgres://alice:" + dsnPassword + "@pg.vendor.example:6543/sales?sslmode=require"
 	oauthSecret  = "oauth-client-secret-9876543210"
 	oauthTokenV1 = "at-v1-access-token-abcdef"
 	oldSecret    = "old-secret-1111"
@@ -42,10 +42,35 @@ const (
 // fakeResolver maps (tenant, server) to a connection and counts calls. It is
 // safe for concurrent use and its answers can be changed mid-test.
 type fakeResolver struct {
-	mu    sync.Mutex
-	conns map[string]*Connection
-	err   error
-	calls int
+	mu         sync.Mutex
+	conns      map[string]*Connection
+	err        error
+	serversErr error
+	calls      int
+}
+
+// Servers derives the cross-tenant view from the stored connections, as
+// aiqg-dashboard-be's /internal/mcp/connections/servers does.
+func (f *fakeResolver) Servers(context.Context) (map[string]ServerConnections, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.serversErr != nil {
+		return nil, f.serversErr
+	}
+	out := map[string]ServerConnections{}
+	for k, c := range f.conns {
+		if c == nil {
+			continue
+		}
+		_, server, _ := strings.Cut(k, "\x00")
+		sc := out[server]
+		sc.Kinds = append(sc.Kinds, c.Kind)
+		if c.Kind == ConnKindDatabaseDSN {
+			sc.Arguments = append(sc.Arguments, paramOr(c.Params, "argument", defaultConnArgument))
+		}
+		out[server] = sc
+	}
+	return out, nil
 }
 
 func (f *fakeResolver) set(tenant, server string, c *Connection) {
@@ -74,6 +99,7 @@ func (f *fakeResolver) Resolve(_ context.Context, tenant, server string) (*Conne
 
 // seen is what the echo upstream received on one call.
 type seen struct {
+	Tenant string
 	Auth   string
 	APIKey string
 	Args   map[string]interface{}
@@ -93,7 +119,7 @@ func newEchoUpstream(t *testing.T) *echoUpstream {
 	e := &echoUpstream{}
 	m := http.NewServeMux()
 	record := func(r *http.Request, args map[string]interface{}) seen {
-		s := seen{Auth: r.Header.Get("Authorization"), APIKey: r.Header.Get("X-Api-Key"), Args: args}
+		s := seen{Tenant: r.Header.Get(TenantHeader), Auth: r.Header.Get("Authorization"), APIKey: r.Header.Get("X-Api-Key"), Args: args}
 		e.mu.Lock()
 		e.last = append(e.last, s)
 		e.mu.Unlock()
@@ -177,7 +203,12 @@ func newConnEnv(t *testing.T) *connEnv {
 	log := zap.New(core)
 	up := newEchoUpstream(t)
 	m := NewManager(log, &MockServiceDiscovery{}, &MockProtocolBridge{})
-	m.SetTenantPolicy(onPolicy())
+	// tenantA may reach the vendor hosts and the local TLS test servers
+	// (an IP literal must be on the allowlist itself); tenantB the vendor.
+	pol := onPolicy()
+	pol.Egress[tenantA] = append(pol.Egress[tenantA], "127.0.0.1")
+	pol.Egress[tenantB] = []string{"*.vendor.example"}
+	m.SetTenantPolicy(pol)
 	for _, s := range []*MCPServer{
 		{ID: srvPlat, Name: "Platform"},
 		{ID: srvA, Name: "A CRM", TenantID: tenantA, ManagedBy: ManagedByAIQG},
@@ -281,7 +312,7 @@ func TestConnections_DatabaseDSNArgument(t *testing.T) {
 	}
 	got := e.up.lastSeen(t)
 	conn, _ := got.Args["_connection"].(map[string]interface{})
-	want := map[string]interface{}{"host": "db.tenant-a.svc", "port": float64(6543), "username": "alice",
+	want := map[string]interface{}{"host": "pg.vendor.example", "port": float64(6543), "username": "alice",
 		"password": dsnPassword, "database": "sales", "protocol": "postgres", "ssl_mode": "require"}
 	for k, v := range want {
 		if conn[k] != v {
@@ -323,8 +354,8 @@ func TestConnections_DatabaseDSNArgument(t *testing.T) {
 // result or in an error body), not a log line, not the tool-call event, not
 // what the boundary scanner is handed. Every kind is checked.
 func TestConnections_SecretNeverInProxyOutputs(t *testing.T) {
-	// A TLS token endpoint: with no tenant policy the injector accepts any
-	// https token URL, and the test server's client trusts its certificate.
+	// A TLS token endpoint on 127.0.0.1, which tenantA's allowlist names;
+	// the test server's client trusts its certificate.
 	tokenSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
 		w.Header().Set("Content-Type", "application/json")
@@ -333,7 +364,7 @@ func TestConnections_SecretNeverInProxyOutputs(t *testing.T) {
 	defer tokenSrv.Close()
 
 	e := newConnEnv(t)
-	e.m.SetConnectionInjector(&ConnectionInjector{Resolver: e.res, HTTP: tokenSrv.Client()})
+	e.m.SetConnectionInjector(&ConnectionInjector{Resolver: e.res, HTTP: tokenSrv.Client(), Policy: e.m.TenantPolicy()})
 
 	kinds := []struct {
 		name    string
@@ -409,7 +440,7 @@ func TestConnections_OAuthClientCredentials(t *testing.T) {
 
 	e := newConnEnv(t)
 	e.m.connections.HTTP = tokenSrv.Client()
-	e.m.connections.Policy = nil // https only; the tenant policy is tested below
+	// The env policy allowlists 127.0.0.1 for tenantA.
 	conn := &Connection{ID: "o", Kind: ConnKindOAuthClientCredentials, Version: "1", Secret: oauthSecret,
 		Params: map[string]string{"client_id": "cid", "token_url": tokenSrv.URL, "scopes": "crm.read"}}
 	e.res.set(tenantA, srvPlat, conn)
@@ -432,7 +463,7 @@ func TestConnections_OAuthClientCredentials(t *testing.T) {
 
 	// A token URL outside the tenant's egress allowlist is refused (fail
 	// closed), with no upstream call.
-	e.m.connections.Policy = e.m.TenantPolicy()
+	e.m.connections.Policy = onPolicy() // no 127.0.0.1
 	e.m.connections.tokens = oauthTokenCache{}
 	before := e.up.count()
 	if rec := e.call(t, srvPlat, callBody("query", nil), as(tokenA)); rec.Code != http.StatusServiceUnavailable {

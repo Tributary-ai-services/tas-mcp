@@ -166,7 +166,7 @@ func installTenantServers(mgr *federation.Manager, cfg *config.Config, zapLogger
 // installConnectionInjection turns on per-tenant connection injection (Plan
 // #22 C.4) when MCP_CONNECTION_INJECTION is set. It needs caller identity (the
 // tenant comes from the TAS-Auth token) and the dashboard URL and token;
-// without them it stays off and says so. Install after installTenantServers,
+// without them (MCP_CONNECTIONS_RESOLVE_TOKEN) it stays off and says so. Install after installTenantServers,
 // so an OAuth token URL is checked against the same egress rules.
 func installConnectionInjection(mgr *federation.Manager, cfg *config.Config, zapLogger *zap.Logger) {
 	c := cfg.ConnectionInjection
@@ -177,7 +177,7 @@ func installConnectionInjection(mgr *federation.Manager, cfg *config.Config, zap
 		zapLogger.Warn("connection injection: IDENTITY_ENABLED is off, so no caller has a tenant; injection stays off")
 		return
 	}
-	r, err := federation.NewDashboardConnectionResolver(c.DashboardURL, c.DashboardInternalAuthToken)
+	r, err := federation.NewDashboardConnectionResolver(c.DashboardURL, c.ResolveToken)
 	if err != nil {
 		zapLogger.Warn("connection injection: resolver not configured; injection stays off", zap.Error(err))
 		return
@@ -185,9 +185,11 @@ func installConnectionInjection(mgr *federation.Manager, cfg *config.Config, zap
 	mgr.SetConnectionInjector(&federation.ConnectionInjector{
 		Resolver: federation.NewCachingConnectionResolver(r, c.CacheTTL),
 		Policy:   mgr.TenantPolicy(),
+		Declared: c.Servers,
 	})
 	zapLogger.Info("connection injection: enabled",
 		zap.String("dashboard_url", c.DashboardURL),
+		zap.Any("declared_servers", c.Servers),
 		zap.Duration("cache_ttl", c.CacheTTL))
 }
 
