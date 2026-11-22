@@ -31,5 +31,8 @@ images:
   # `name: tas-mcp` entry never matched and prod rendered `:latest`.
   # 1.2.0 (MCP-16) replaces obs-20260817 (digest sha256:e2dffe1a...),
   # a bare date tag with no revision label.
+  # 1.3.0 (Plan #22 T.1/T.2, #36/#37): caller identity and tool-call events,
+  # both behind flags that default off. Pinned by digest.
   - name: registry-api.tas.scharber.com/tas-mcp
-    newTag: 1.2.0
+    newTag: 1.3.0
+    digest: sha256:a1e2dd058be495d4b69b9e3ad886d489fd93bca7c66da2fd20de7285ecb686d0
