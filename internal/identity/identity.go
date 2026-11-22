@@ -42,6 +42,10 @@ const (
 	// ResultValidatorUnconfigured — identity is enabled but no validator URL
 	// or internal-auth token is configured.
 	ResultValidatorUnconfigured = "validator_unconfigured"
+	// ResultOnBehalf — an admin-token call (aiqg-dashboard-be's Test
+	// connection) that names its tenant in TAS-MCP-On-Behalf-Of-Tenant
+	// (Plan #22 C.4). Never produced by the resolver from a TAS-Auth token.
+	ResultOnBehalf = "admin_on_behalf"
 )
 
 // Identity is the resolved caller of one proxy request.

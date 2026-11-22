@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 
@@ -355,7 +357,10 @@ func (h *HTTPHandlers) handleInvokeServer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ctx := h.withIdentity(r)
+	ctx, ok := h.invokeIdentity(w, r)
+	if !ok {
+		return
+	}
 	// Set request ID if not provided, and say so: the tool-call event must
 	// not use a proxy-minted id as a join key.
 	if request.ID == "" {
@@ -376,9 +381,48 @@ func (h *HTTPHandlers) handleInvokeServer(w http.ResponseWriter, r *http.Request
 	h.writeJSONResponse(w, http.StatusOK, response)
 }
 
+// OnBehalfOfTenantHeader names the tenant an admin-token invoke runs as
+// (Plan #22 C.4). aiqg-dashboard-be's Test connection uses it: dashboard-be
+// holds no tenant's TAS-Auth token (only their hashes), so it calls with the
+// service token and names the tenant whose org owner asked, after checking
+// that owner's role itself. The header is ignored without a valid admin token,
+// so a tenant can never assert another tenant through it.
+const OnBehalfOfTenantHeader = "TAS-MCP-On-Behalf-Of-Tenant"
+
+// invokeIdentity is the caller identity for one invoke: the resolved TAS-Auth
+// token, or, for an admin-token call naming a tenant in
+// OnBehalfOfTenantHeader, that tenant. A malformed tenant id is a 400.
+func (h *HTTPHandlers) invokeIdentity(w http.ResponseWriter, r *http.Request) (context.Context, bool) {
+	t := r.Header.Get(OnBehalfOfTenantHeader)
+	p := h.tenancy()
+	if t == "" || p == nil || !p.IsAdmin(r) {
+		return h.withIdentity(r), true
+	}
+	if !isUUID(t) {
+		http.Error(w, OnBehalfOfTenantHeader+" must be a tenant UUID", http.StatusBadRequest)
+		return nil, false
+	}
+	return identity.WithIdentity(r.Context(), &identity.Identity{
+		Attributed: true, Result: identity.ResultOnBehalf, TenantID: strings.ToLower(t),
+	}), true
+}
+
+// isUUID reports whether s is a UUID in the 8-4-4-4-12 form.
+func isUUID(s string) bool {
+	_, err := uuid.Parse(s)
+	return err == nil && len(s) == uuidTextLen
+}
+
+// uuidTextLen is the length of a UUID's 8-4-4-4-12 text form.
+const uuidTextLen = 36
+
 // invokeStatus is 500 for every invoke error, as before C.1, except the
 // tenancy refusals, which are 403 when the tenant registry is on.
 func (h *HTTPHandlers) invokeStatus(err error) int {
+	if errors.Is(err, ErrConnectionUnavailable) {
+		// Only produced with MCP_CONNECTION_INJECTION on: retryable.
+		return http.StatusServiceUnavailable
+	}
 	if h.tenancy() == nil {
 		return http.StatusInternalServerError
 	}

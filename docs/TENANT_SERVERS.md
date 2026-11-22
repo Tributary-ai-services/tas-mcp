@@ -96,3 +96,37 @@ This PR changes no manifest. To turn the feature on:
 2. **The flag.** Set `MCP_TENANT_SERVERS=true` with `IDENTITY_ENABLED=true`, which is already on in prod. Without identity, no tenant server can be called.
 3. **The NetworkPolicy.** MCP-14 allows the proxy to reach only `tas-mcp-servers` and Redis. A tenant server outside the cluster needs one more egress rule on the proxy pod: TCP 443 to the resolved addresses of each allowlisted host, as `ipBlock` CIDRs. A NetworkPolicy cannot match a DNS name, so a CDN-hosted SaaS endpoint needs either a broad CIDR or an egress proxy or gateway that can match on name. DNS egress to kube-dns must stay open. Do not add `0.0.0.0/0`. An in-cluster tenant server in a namespace other than `tas-mcp-servers` needs a namespace-selector rule for that namespace, and must also be listed in `MCP_TENANT_CLUSTER_NAMESPACES`.
 4. **The allowlist.** Set `MCP_TENANT_EGRESS_ALLOWLIST` in the same change as the NetworkPolicy rule, so that the two lists agree.
+
+## Per-tenant connections (C.4)
+
+Plan #22 C.4; design §9.6 "Connections". A connection is one tenant's credentials and parameters for one server. aiqg-dashboard-be stores it encrypted (`aiqg.mcp_connection`, the BYOK envelope) and is the only place it is written. On each invoke, the proxy resolves the caller tenant's connection for the server and injects it. This is the server-side form of aether-be's `injectConnectionParams`.
+
+The feature is off by default. With `MCP_CONNECTION_INJECTION` unset, nothing is resolved or injected.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MCP_CONNECTION_INJECTION` | off | Turns injection on. It needs `IDENTITY_ENABLED` (the tenant comes from the caller's token); without identity it stays off and logs a Warn. |
+| `AIQG_DASHBOARD_URL`, `AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN` | — | The identity validator's settings. The proxy calls `POST /internal/mcp/connections/resolve` on the same service with the same `Internal-Auth` token. |
+| `MCP_CONNECTION_CACHE_TTL` | `60s` | How long a resolved connection, or the answer "none", is kept in memory. A rotation takes effect within this window. Errors are never cached. |
+
+### The rules
+
+- **The tenant comes from the resolved `TAS-Auth` token**, never from the body or a self-asserted header. An unattributed call resolves nothing and gets nothing injected.
+- **A connection is keyed by `(tenant_id, server_id)`**, and nothing else. On a platform server, tenant A's call injects A's connection and tenant B's call injects B's. A tenant with no connection for the server gets nothing, and the server's own `auth` applies.
+- **Fail closed.** If the resolver cannot answer, or a connection cannot be applied (an OAuth grant fails, a token URL breaks the egress rule), the call is refused with **503** and the upstream server is not contacted. Running the call without the tenant's connection could reach the server's default target instead of the tenant's. The response carries only a generic message; the detail is logged at Warn.
+- **Injected values never reach the proxy's own outputs.** The connection is added to a copy of the request that only the upstream call sees. The boundary scanner, the reducer and the tool-call event see the caller's request. Every injected value (the secret, the full header value, an OAuth access token, a DSN and its password, raw and escaped) is replaced with `[REDACTED]` in the response, in the error text and therefore in the log lines, before the scanner runs, so a finding cannot quote one either. Values shorter than 4 characters are not redacted.
+
+### Kinds
+
+| Kind | Params (non-secret) | Secret | What the proxy does |
+|---|---|---|---|
+| `header` | `header` (default `Authorization`), `prefix` (e.g. `Bearer `) | the header value | Sets `header: prefix+secret` on every call, replacing a header of the same name from the server's own `auth`. |
+| `oauth_client_credentials` | `client_id`, `token_url`, `scopes` (space-separated), `audience`, `header` | the client secret | Runs the client-credentials grant and sets `Authorization: Bearer <token>`. The token is cached per tenant, server, connection id and version until 30 s before it expires, so a rotation fetches a new one. With `MCP_TENANT_SERVERS` on, `token_url` must pass the same egress rule as a tenant server endpoint; otherwise it must be `https`. |
+| `database_dsn` | `argument` (default `_connection`), `format` (`object` or `string`) | the DSN | On `tools/call` only, sets `arguments[argument]`: for `object`, aether-be's `connectionInfo` shape (`host`, `port`, `username`, `password`, `database`, `protocol`, `ssl_mode`); for `string`, the DSN itself. It replaces a caller-supplied argument of the same name. |
+
+### Test connection (`TAS-MCP-On-Behalf-Of-Tenant`)
+
+aiqg-dashboard-be holds no tenant's `TAS-Auth` token, only its hash, so its Test connection calls invoke with the admin token and names the tenant in `TAS-MCP-On-Behalf-Of-Tenant`. The proxy honors the header **only with a valid admin token**, and only with `MCP_TENANT_SERVERS` on. Without the token it is ignored, so no tenant can assert another tenant through it. A malformed tenant id is a 400. Such a call:
+
+- is treated as an attributed call by that tenant: it may call that tenant's servers and gets that tenant's connection injected;
+- gets an **unfiltered** `tools/list`, so the UI can choose `allowed_tools` from every tool the server offers, while `tools/call` of a disallowed tool is still refused.

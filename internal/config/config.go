@@ -68,7 +68,28 @@ type Config struct {
 	// C.1). Nil (MCP_TENANT_SERVERS unset) leaves the registry global and
 	// its write routes unauthenticated, exactly as before.
 	TenantServers *TenantServersConfig `json:"tenant_servers,omitempty"`
+	// ConnectionInjection turns on per-tenant connection injection (Plan #22
+	// C.4). Nil (MCP_CONNECTION_INJECTION unset) resolves and injects nothing.
+	ConnectionInjection *ConnectionInjectionConfig `json:"connection_injection,omitempty"`
 }
+
+// ConnectionInjectionConfig configures per-tenant connection injection: on
+// each invoke by an attributed caller, the proxy resolves that tenant's
+// connection for the server from aiqg-dashboard-be and injects it.
+type ConnectionInjectionConfig struct {
+	Enabled bool `json:"enabled"`
+	// DashboardURL and DashboardInternalAuthToken are the identity
+	// validator's (AIQG_DASHBOARD_URL, AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN):
+	// the resolve endpoint is on the same service behind the same token.
+	DashboardURL               string `json:"dashboard_url,omitempty"`
+	DashboardInternalAuthToken string `json:"-"`
+	// CacheTTL is how long a resolved connection is reused (default 60s).
+	// Rotation takes effect within it.
+	CacheTTL time.Duration `json:"cache_ttl,omitempty"`
+}
+
+// DefaultConnectionCacheTTL is the connection cache TTL (design §9.6).
+const DefaultConnectionCacheTTL = 60 * time.Second
 
 // TenantServersConfig configures the tenant-scoped federation registry
 // (Plan #22 C.1, design §9.6).
@@ -394,6 +415,15 @@ func Load() *Config {
 			Brokers:    getEnvAsSlice("AIQG_KAFKA_BROKERS", []string{}),
 			Topic:      getEnv("AIQG_KAFKA_TOPIC", DefaultToolCallEventsTopic),
 			BufferSize: getEnvAsInt("TOOL_CALL_EVENTS_BUFFER", DefaultToolCallEventsBuffer),
+		}
+	}
+
+	if getEnvAsBool("MCP_CONNECTION_INJECTION", false) {
+		config.ConnectionInjection = &ConnectionInjectionConfig{
+			Enabled:                    true,
+			DashboardURL:               getEnv("AIQG_DASHBOARD_URL", ""),
+			DashboardInternalAuthToken: getEnv("AIQG_DASHBOARD_INTERNAL_AUTH_TOKEN", ""),
+			CacheTTL:                   getEnvAsDuration("MCP_CONNECTION_CACHE_TTL", DefaultConnectionCacheTTL),
 		}
 	}
 

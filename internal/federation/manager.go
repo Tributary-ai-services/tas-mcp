@@ -70,6 +70,59 @@ type Manager struct {
 	// MCP_TENANT_SERVERS off: every server is visible to and callable by
 	// every caller, as before C.1.
 	tenancy *TenantPolicy
+
+	// connections injects the caller tenant's connection on invoke (Plan #22
+	// C.4). Nil = MCP_CONNECTION_INJECTION off: nothing is resolved or added.
+	connections *ConnectionInjector
+}
+
+// SetConnectionInjector turns per-tenant connection injection on (non-nil) or
+// off (nil).
+func (m *Manager) SetConnectionInjector(ci *ConnectionInjector) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.connections = ci
+}
+
+// injectConnection resolves the caller tenant's connection for serverID and
+// returns the context and request the upstream call uses, plus the redactor
+// for everything the call produces. The tenant is the one the caller's
+// TAS-Auth token resolved to; an unattributed caller gets nothing injected.
+// With injection off it returns (ctx, req, nil, nil).
+func (m *Manager) injectConnection(ctx context.Context, serverID string, req *MCPRequest) (context.Context, *MCPRequest, *redactor, error) {
+	m.mu.RLock()
+	ci := m.connections
+	m.mu.RUnlock()
+	if ci == nil {
+		return ctx, req, nil, nil
+	}
+	tenant := callerTenant(identity.FromContext(ctx))
+	if tenant == "" {
+		ConnectionInjections.WithLabelValues("unattributed").Inc()
+		return ctx, req, nil, nil
+	}
+	inj, err := ci.prepare(ctx, tenant, serverID, req)
+	if err != nil {
+		ConnectionInjections.WithLabelValues("failed").Inc()
+		// err never carries a connection's secret: prepare builds its own
+		// messages and never quotes a token endpoint. It is logged here and
+		// the caller gets only the generic refusal.
+		m.logger.Warn("federation: connection injection failed; call refused",
+			zap.String("server_id", serverID),
+			zap.String("caller_tenant_id", tenant),
+			zap.Error(err))
+		return ctx, req, nil, ErrConnectionUnavailable
+	}
+	if inj == nil {
+		ConnectionInjections.WithLabelValues("none").Inc()
+		return ctx, req, nil, nil
+	}
+	ConnectionInjections.WithLabelValues("injected").Inc()
+	out := req
+	if inj.req != nil {
+		out = inj.req
+	}
+	return withCallHeaders(ctx, inj.headers), out, inj.red, nil
 }
 
 // SetTenantPolicy turns the tenant-scoped registry on (non-nil) or off (nil).
@@ -441,9 +494,20 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 		return nil, err
 	}
 
+	// Connection injection (Plan #22 C.4): the upstream call alone sees the
+	// tenant's connection. The scanner, the reducer and the tool-call event
+	// keep the original request, and the redactor scrubs the injected values
+	// from the response and the error before anything else reads them.
+	upCtx, upReq, red, err := m.injectConnection(ctx, serverID, request)
+	if err != nil {
+		m.updateFailureMetrics()
+		return nil, err
+	}
+
 	callStart := time.Now()
-	response, err := service.Invoke(ctx, request)
+	response, err := service.Invoke(upCtx, upReq)
 	callDuration := time.Since(callStart)
+	response, err = red.response(response), red.err(err)
 	if isToolCall {
 		// Observe on every exit from here on, success or failure, after the
 		// response is final. Registered first so it runs last.
@@ -460,7 +524,7 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 
 	m.updateSuccessMetrics()
 
-	if srvDef != nil && request.Method == methodToolsList {
+	if srvDef != nil && request.Method == methodToolsList && !onBehalf(ctx) {
 		response = filterToolsList(response, srvDef)
 	}
 
@@ -470,30 +534,47 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 	// reducible/scannable external content, so structured-output methods pass
 	// through untouched.
 	if isToolCall && response != nil {
-		m.mu.RLock()
-		sc := m.scanner
-		rp := m.resultProcessor
-		m.mu.RUnlock()
-
-		// Scan is the SECURITY control at the boundary: it runs on every
-		// external tool result, independent of the per-server reduce opt-in
-		// (docs/AIQG-GATEKEEPER-INTEGRATION.md §2 — scan at the boundary, not
-		// only where reduction happens to be enabled). It scans the ORIGINAL
-		// content and redacts (when enabled) BEFORE reduce runs — reduction is
-		// lossy, so scanning reduced text would under-report.
-		if sc != nil {
-			response = sc.ScanResult(ctx, serverID, request, response)
-		}
-
-		// Reduce is a per-server opt-in optimization, gated on srv.Reduce (set
-		// via the FederatedMCPServer CR).
-		if rp != nil {
-			if srv, gerr := m.registry.Get(ctx, serverID); gerr == nil && srv.Reduce {
-				response = rp.ProcessResult(ctx, request, response)
-			}
-		}
+		response = m.processToolResult(ctx, serverID, request, response)
 	}
 	return response, nil
+}
+
+// processToolResult scans, then reduces, one tools/call result (see
+// InvokeServer). It sees the caller's request, never the copy carrying an
+// injected connection, and a response the redactor has already scrubbed.
+func (m *Manager) processToolResult(ctx context.Context, serverID string, request *MCPRequest, response *MCPResponse) *MCPResponse {
+	m.mu.RLock()
+	sc := m.scanner
+	rp := m.resultProcessor
+	m.mu.RUnlock()
+
+	// Scan is the SECURITY control at the boundary: it runs on every
+	// external tool result, independent of the per-server reduce opt-in
+	// (docs/AIQG-GATEKEEPER-INTEGRATION.md §2 — scan at the boundary, not
+	// only where reduction happens to be enabled). It scans the ORIGINAL
+	// content and redacts (when enabled) BEFORE reduce runs — reduction is
+	// lossy, so scanning reduced text would under-report.
+	if sc != nil {
+		response = sc.ScanResult(ctx, serverID, request, response)
+	}
+
+	// Reduce is a per-server opt-in optimization, gated on srv.Reduce (set
+	// via the FederatedMCPServer CR).
+	if rp != nil {
+		if srv, gerr := m.registry.Get(ctx, serverID); gerr == nil && srv.Reduce {
+			response = rp.ProcessResult(ctx, request, response)
+		}
+	}
+	return response
+}
+
+// onBehalf reports whether this is an admin-token call made for a tenant
+// (aiqg-dashboard-be's Test connection, C.4). Its tools/list is not filtered
+// by allowed_tools, so the UI can choose the allowlist from every tool the
+// server offers; tools/call is still refused outside the allowlist.
+func onBehalf(ctx context.Context) bool {
+	id := identity.FromContext(ctx)
+	return id != nil && id.Result == identity.ResultOnBehalf
 }
 
 // authorizeInvoke applies the tenant policy to one invoke. With the policy off
