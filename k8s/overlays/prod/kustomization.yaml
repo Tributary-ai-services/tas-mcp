@@ -36,6 +36,8 @@ images:
   # attestations), all behind flags that default off. Pinned by digest.
   # 1.5.0 (P4-Config C.1, #44): tenant-scoped registry behind
   # MCP_TENANT_SERVERS (off here until C.3 exists).
+  # 1.6.0 (P4-Config C.4, #46): per-tenant connection injection behind
+  # MCP_CONNECTION_INJECTION (off).
   - name: registry-api.tas.scharber.com/tas-mcp
-    newTag: 1.5.0
-    digest: sha256:6ba93bfc10062fd45137d91cd9806516dde70514caa3bbd5edfe1f53df588892
+    newTag: 1.6.0
+    digest: sha256:8c5ea3994472fad0840e06cb74d8c2104c8f824f4a7286b6ba0dd3c416a39ea8
