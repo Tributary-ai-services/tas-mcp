@@ -178,7 +178,7 @@ var events = promauto.NewCounterVec(prometheus.CounterOpts{
 type Publisher struct {
 	w      Writer
 	log    *zap.Logger
-	ch     chan federation.ToolCallRecord
+	ch     chan pending
 	done   chan struct{}
 	mu     sync.RWMutex
 	closed bool
@@ -193,7 +193,7 @@ func NewPublisher(w Writer, bufferSize int, log *zap.Logger) *Publisher {
 	if log == nil {
 		log = zap.NewNop()
 	}
-	p := &Publisher{w: w, log: log, ch: make(chan federation.ToolCallRecord, bufferSize), done: make(chan struct{})}
+	p := &Publisher{w: w, log: log, ch: make(chan pending, bufferSize), done: make(chan struct{})}
 	go p.run()
 	return p
 }
@@ -227,17 +227,38 @@ func (p *Publisher) ObserveToolCall(rec federation.ToolCallRecord) { //nolint:go
 		return
 	}
 	select {
-	case p.ch <- rec:
+	case p.ch <- pending{call: &rec}:
 	default:
 		events.WithLabelValues("dropped").Inc()
 	}
 }
 
+// enqueueCatalogue is ObserveCatalogue's non-blocking send.
+func (p *Publisher) enqueueCatalogue(e tasevents.Event) { //nolint:gocritic // value event
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.closed {
+		catalogueEvents.WithLabelValues("dropped").Inc()
+		return
+	}
+	select {
+	case p.ch <- pending{catalogue: &e}:
+	default:
+		catalogueEvents.WithLabelValues("dropped").Inc()
+	}
+}
+
+// pending is one queued event: a tool call, or a prebuilt catalogue event.
+type pending struct {
+	call      *federation.ToolCallRecord
+	catalogue *tasevents.Event
+}
+
 func (p *Publisher) run() {
 	defer close(p.done)
 	batch := make([]kafka.Message, 0, maxBatch)
-	for rec := range p.ch {
-		batch = p.appendEncoded(batch[:0], rec)
+	for it := range p.ch {
+		batch = p.appendEncoded(batch[:0], it)
 	drain:
 		for len(batch) < maxBatch {
 			select {
@@ -254,8 +275,17 @@ func (p *Publisher) run() {
 	}
 }
 
-func (p *Publisher) appendEncoded(batch []kafka.Message, rec federation.ToolCallRecord) []kafka.Message { //nolint:gocritic // value record
-	msg, err := Encode(BuildEvent(rec))
+func (p *Publisher) appendEncoded(batch []kafka.Message, it pending) []kafka.Message {
+	if it.catalogue != nil {
+		msg, err := Encode(*it.catalogue)
+		if err != nil {
+			catalogueEvents.WithLabelValues("failed").Inc()
+			p.log.Warn("tool catalogue event: encode failed", zap.Error(err))
+			return batch
+		}
+		return append(batch, msg)
+	}
+	msg, err := Encode(BuildEvent(*it.call))
 	if err != nil {
 		events.WithLabelValues("failed").Inc()
 		p.log.Warn("tool-call event: encode failed", zap.Error(err))
@@ -268,15 +298,34 @@ func (p *Publisher) write(batch []kafka.Message) {
 	if len(batch) == 0 {
 		return
 	}
+	calls, cats := 0, 0
+	for i := range batch {
+		if isCatalogue(batch[i]) {
+			cats++
+		} else {
+			calls++
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), writeTimeout)
 	defer cancel()
 	if err := p.w.WriteMessages(ctx, batch...); err != nil {
-		events.WithLabelValues("failed").Add(float64(len(batch)))
-		p.log.Warn("tool-call events: publish failed; events dropped",
+		events.WithLabelValues("failed").Add(float64(calls))
+		catalogueEvents.WithLabelValues("failed").Add(float64(cats))
+		p.log.Warn("tool events: publish failed; events dropped",
 			zap.Int("events", len(batch)), zap.Error(err))
 		return
 	}
-	events.WithLabelValues("published").Add(float64(len(batch)))
+	events.WithLabelValues("published").Add(float64(calls))
+	catalogueEvents.WithLabelValues("published").Add(float64(cats))
+}
+
+func isCatalogue(m kafka.Message) bool { //nolint:gocritic // read-only
+	for _, h := range m.Headers {
+		if h.Key == "ce-type" {
+			return string(h.Value) == CatalogueEventType
+		}
+	}
+	return false
 }
 
 // Close stops accepting events, flushes what is buffered (bounded wait), and

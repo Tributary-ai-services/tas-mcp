@@ -58,6 +58,12 @@ type Config struct {
 	Federation      *FederationConfig     `json:"federation,omitempty"`
 	Identity        *IdentityConfig       `json:"identity,omitempty"`
 	ToolCallEvents  *ToolCallEventsConfig `json:"tool_call_events,omitempty"`
+	ServerProbes    *ServerProbesConfig   `json:"server_probes,omitempty"`
+	// ToolCatalogueEvents turns on com.tas.aiqg.tool_catalogue.v1 (Plan #22
+	// T.4). Nil (TOOL_CATALOGUE_EVENTS_ENABLED unset) publishes none. Uses
+	// the same brokers, topic and buffer as ToolCallEvents, and needs
+	// ServerProbes: the catalogue is what the probes see.
+	ToolCatalogueEvents *ToolCallEventsConfig `json:"tool_catalogue_events,omitempty"`
 }
 
 // ToolCallEventsConfig configures the com.tas.aiqg.tool_call.v1 publisher
@@ -78,6 +84,24 @@ type ToolCallEventsConfig struct {
 const (
 	DefaultToolCallEventsTopic  = "tas.aiqg.events.v1"
 	DefaultToolCallEventsBuffer = 1024
+)
+
+// ServerProbesConfig configures the federated-server prober (Plan #22 T.4):
+// initialize + tools/list against every registered server, every Interval.
+// Nil (SERVER_PROBES_ENABLED unset) means no probes, no tas_mcp_server_up
+// series, and no probe block on the federation API.
+type ServerProbesConfig struct {
+	Enabled     bool          `json:"enabled"`
+	Interval    time.Duration `json:"interval,omitempty"`
+	Timeout     time.Duration `json:"timeout,omitempty"`
+	Concurrency int           `json:"concurrency,omitempty"`
+}
+
+// Server probe defaults.
+const (
+	DefaultServerProbeInterval    = 60 * time.Second
+	DefaultServerProbeTimeout     = 10 * time.Second
+	DefaultServerProbeConcurrency = 4
 )
 
 // IdentityConfig configures caller-identity resolution at the federation proxy
@@ -301,6 +325,24 @@ func Load() *Config {
 	// Load tool-call event publishing if enabled (Plan #22 T.2)
 	if getEnvAsBool("TOOL_CALL_EVENTS_ENABLED", false) {
 		config.ToolCallEvents = &ToolCallEventsConfig{
+			Enabled:    true,
+			Brokers:    getEnvAsSlice("AIQG_KAFKA_BROKERS", []string{}),
+			Topic:      getEnv("AIQG_KAFKA_TOPIC", DefaultToolCallEventsTopic),
+			BufferSize: getEnvAsInt("TOOL_CALL_EVENTS_BUFFER", DefaultToolCallEventsBuffer),
+		}
+	}
+
+	// Server probes and the tool catalogue (Plan #22 T.4)
+	if getEnvAsBool("SERVER_PROBES_ENABLED", false) {
+		config.ServerProbes = &ServerProbesConfig{
+			Enabled:     true,
+			Interval:    getEnvAsDuration("SERVER_PROBE_INTERVAL", DefaultServerProbeInterval),
+			Timeout:     getEnvAsDuration("SERVER_PROBE_TIMEOUT", DefaultServerProbeTimeout),
+			Concurrency: getEnvAsInt("SERVER_PROBE_CONCURRENCY", DefaultServerProbeConcurrency),
+		}
+	}
+	if getEnvAsBool("TOOL_CATALOGUE_EVENTS_ENABLED", false) {
+		config.ToolCatalogueEvents = &ToolCallEventsConfig{
 			Enabled:    true,
 			Brokers:    getEnvAsSlice("AIQG_KAFKA_BROKERS", []string{}),
 			Topic:      getEnv("AIQG_KAFKA_TOPIC", DefaultToolCallEventsTopic),

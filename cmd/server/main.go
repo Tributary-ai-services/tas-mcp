@@ -69,8 +69,12 @@ func main() {
 	if reducer != nil {
 		defer func() { _ = reducer.Close() }()
 	}
-	if pub := installToolCallEvents(federationManager, cfg, zapLogger); pub != nil {
+	pub := installToolCallEvents(federationManager, cfg, zapLogger)
+	if pub != nil {
 		defer func() { _ = pub.Close() }()
+	}
+	if stop := installServerProbes(federationManager, cfg, pub, zapLogger); stop != nil {
+		defer stop()
 	}
 
 	grpcServer, mcpServer := setupGRPCServer(cfg, zapLogger, forwarder)
@@ -232,20 +236,64 @@ func setupGRPCServer(
 // federation Manager (Plan #22 T.2). Nil when TOOL_CALL_EVENTS_ENABLED is
 // unset, or when it is set without brokers (logged at Warn, not fatal: a
 // missing event stream must not take the proxy down).
+//
+// The same publisher carries tool-catalogue events (T.4) when only
+// TOOL_CATALOGUE_EVENTS_ENABLED is set; then it is built but not attached as
+// the tool-call observer.
 func installToolCallEvents(mgr *federation.Manager, cfg *config.Config, zapLogger *zap.Logger) *toolevents.Publisher {
-	c := cfg.ToolCallEvents
-	if mgr == nil || c == nil || !c.Enabled {
+	calls := cfg.ToolCallEvents != nil && cfg.ToolCallEvents.Enabled
+	cats := cfg.ToolCatalogueEvents != nil && cfg.ToolCatalogueEvents.Enabled
+	if mgr == nil || (!calls && !cats) {
 		return nil
+	}
+	c := cfg.ToolCallEvents
+	if !calls {
+		c = cfg.ToolCatalogueEvents
 	}
 	pub, err := toolevents.NewKafkaPublisher(c.Brokers, c.Topic, c.BufferSize, zapLogger)
 	if err != nil {
-		zapLogger.Warn("tool-call events: not publishing", zap.Error(err))
+		zapLogger.Warn("tool events: not publishing", zap.Error(err))
 		return nil
 	}
-	mgr.SetToolCallObserver(pub)
-	zapLogger.Info("tool-call events: enabled",
+	if calls {
+		mgr.SetToolCallObserver(pub)
+	}
+	zapLogger.Info("tool events: enabled",
+		zap.Bool("tool_calls", calls), zap.Bool("tool_catalogue", cats),
 		zap.Strings("brokers", c.Brokers), zap.String("topic", c.Topic), zap.Int("buffer", c.BufferSize))
 	return pub
+}
+
+// installServerProbes starts the federated-server prober (Plan #22 T.4) and,
+// when TOOL_CATALOGUE_EVENTS_ENABLED and a publisher exists, the catalogue
+// emitter. Returns a stop func, or nil when SERVER_PROBES_ENABLED is unset.
+func installServerProbes(mgr *federation.Manager, cfg *config.Config, pub *toolevents.Publisher, zapLogger *zap.Logger) func() {
+	c := cfg.ServerProbes
+	if mgr == nil || c == nil || !c.Enabled {
+		if cfg.ToolCatalogueEvents != nil && cfg.ToolCatalogueEvents.Enabled {
+			zapLogger.Warn("tool catalogue events: enabled but SERVER_PROBES_ENABLED is not; no catalogue will be published")
+		}
+		return nil
+	}
+	p := federation.NewProber(mgr, federation.ProbeConfig{
+		Interval: c.Interval, Timeout: c.Timeout, Concurrency: c.Concurrency,
+	}, zapLogger)
+	if pub != nil && cfg.ToolCatalogueEvents != nil && cfg.ToolCatalogueEvents.Enabled {
+		p.SetCatalogueObserver(toolevents.NewCatalogueEmitter(pub))
+	}
+	mgr.SetProber(p)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.Run(ctx)
+	}()
+	zapLogger.Info("server probes: enabled",
+		zap.Duration("interval", c.Interval), zap.Duration("timeout", c.Timeout), zap.Int("concurrency", c.Concurrency))
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // buildIdentityResolver returns the caller-identity resolver for the federation

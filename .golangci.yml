@@ -23,6 +23,10 @@ linters-settings:
     min-occurrences: 2
   misspell:
     locale: US
+    # "catalogue" is a contract name (com.tas.aiqg.tool_catalogue.v1,
+    # aiqg.tool_catalogue), not a spelling choice.
+    ignore-words:
+      - catalogue
   lll:
     line-length: 140
   goimports:
