@@ -47,3 +47,6 @@ data:
   # external hosts), so the two allowlists match.
   MCP_CONNECTION_INJECTION: "true"
   MCP_CONNECTION_SERVERS: "postgres-mcp=database_dsn"
+  # SEC-38: postgres-mcp never runs a call on its own login through the proxy.
+  # No stored connection = 403; tools/list stays open; broadcast skips it.
+  MCP_CONNECTION_REQUIRED_SERVERS: "postgres-mcp"

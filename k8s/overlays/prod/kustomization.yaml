@@ -38,6 +38,7 @@ images:
   # MCP_TENANT_SERVERS (off here until C.3 exists).
   # 1.6.0 (P4-Config C.4, #46): per-tenant connection injection behind
   # MCP_CONNECTION_INJECTION (off).
+  # 1.7.0 (SEC-38, #50): MCP_CONNECTION_REQUIRED_SERVERS, on for postgres-mcp.
   - name: registry-api.tas.scharber.com/tas-mcp
-    newTag: 1.6.0
-    digest: sha256:8c5ea3994472fad0840e06cb74d8c2104c8f824f4a7286b6ba0dd3c416a39ea8
+    newTag: 1.7.0
+    digest: sha256:204db206816dc090dd1db6c3bbd002c2277db45dfa99140b3debdb8cc79ddcda
