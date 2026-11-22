@@ -75,6 +75,10 @@ type Manager struct {
 	// connections injects the caller tenant's connection on invoke (Plan #22
 	// C.4). Nil = MCP_CONNECTION_INJECTION off: nothing is resolved or added.
 	connections *ConnectionInjector
+
+	// connRequired lists the servers that refuse any call not carrying the
+	// caller tenant's stored connection (MCP_CONNECTION_REQUIRED_SERVERS).
+	connRequired []string
 }
 
 // SetConnectionInjector turns per-tenant connection injection on (non-nil) or
@@ -571,10 +575,21 @@ func (m *Manager) InvokeServer(ctx context.Context, serverID string, request *MC
 	// tenant's connection. The scanner, the reducer and the tool-call event
 	// keep the original request, and the redactor scrubs the injected values
 	// from the response and the error before anything else reads them.
-	upCtx, upReq, red, err := m.injectConnection(ctx, serverID, request)
+	required := m.connectionRequired(serverID)
+	toInject := request
+	if required {
+		toInject = withoutCallerConnection(request)
+	}
+	upCtx, upReq, red, err := m.injectConnection(ctx, serverID, toInject)
 	if err != nil {
 		m.updateFailureMetrics()
 		return nil, err
+	}
+	if required {
+		if err := m.requireConnection(serverID, upReq); err != nil {
+			m.updateFailureMetrics()
+			return nil, err
+		}
 	}
 
 	callStart := time.Now()
@@ -763,6 +778,11 @@ func (m *Manager) BroadcastRequest(ctx context.Context, request *MCPRequest) ([]
 	services := make(map[string]MCPService)
 	caller := identity.FromContext(ctx)
 	for id, service := range m.services {
+		// Broadcast injects nothing and strips nothing, so a server that
+		// requires a connection takes only tools/list from it.
+		if request.Method != methodToolsList && slices.Contains(m.connRequired, id) {
+			continue
+		}
 		if srv, err := m.registry.Get(ctx, id); err == nil && srv.Status == StatusHealthy &&
 			m.tenancy.CheckInvoke(srv, caller) == nil {
 			services[id] = service

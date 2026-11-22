@@ -71,6 +71,10 @@ type Config struct {
 	// ConnectionInjection turns on per-tenant connection injection (Plan #22
 	// C.4). Nil (MCP_CONNECTION_INJECTION unset) resolves and injects nothing.
 	ConnectionInjection *ConnectionInjectionConfig `json:"connection_injection,omitempty"`
+	// ConnectionRequiredServers is MCP_CONNECTION_REQUIRED_SERVERS: servers
+	// that never serve a call on their own login. It is read whether or not
+	// injection is on, so turning injection off fails closed for them.
+	ConnectionRequiredServers []string `json:"connection_required_servers,omitempty"`
 }
 
 // ConnectionInjectionConfig configures per-tenant connection injection: on
@@ -420,6 +424,12 @@ func Load() *Config {
 			Brokers:    getEnvAsSlice("AIQG_KAFKA_BROKERS", []string{}),
 			Topic:      getEnv("AIQG_KAFKA_TOPIC", DefaultToolCallEventsTopic),
 			BufferSize: getEnvAsInt("TOOL_CALL_EVENTS_BUFFER", DefaultToolCallEventsBuffer),
+		}
+	}
+
+	for _, id := range strings.Split(getEnv("MCP_CONNECTION_REQUIRED_SERVERS", ""), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			config.ConnectionRequiredServers = append(config.ConnectionRequiredServers, id)
 		}
 	}
 
