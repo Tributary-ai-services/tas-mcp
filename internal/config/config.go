@@ -151,7 +151,30 @@ type ScanningConfig struct {
 
 	// MinConfidence is the detection threshold (0 → Gatekeeper default 0.7).
 	MinConfidence float64 `json:"min_confidence,omitempty"`
+
+	// Attest writes each scanned tool result to the gateway's scan-once
+	// store (Plan #22 T.3, GK-5b). Nil (SCAN_ATTEST_ENABLED unset) = off.
+	Attest *ScanAttestConfig `json:"attest,omitempty"`
 }
+
+// ScanAttestConfig configures proxy scan attestations (GK-5b).
+type ScanAttestConfig struct {
+	Enabled bool `json:"enabled"`
+	// RedisURL is the gateway's scan-once store. Default: the federation
+	// registry's Redis, which is the same instance.
+	RedisURL string `json:"redis_url,omitempty"`
+	// GatewayBuilds are the gateway builds (its events.GatewayVersion, the
+	// git short SHA) whose keys to write. Required: the build is part of
+	// the gateway's key.
+	GatewayBuilds []string `json:"gateway_builds,omitempty"`
+	// GatewayTier is the gateway's inbound trust tier, the tier term of its
+	// key ("internal" live). Default "internal".
+	GatewayTier string        `json:"gateway_tier,omitempty"`
+	TTL         time.Duration `json:"ttl,omitempty"`
+}
+
+// DefaultScanAttestTTL matches the gateway's scan-once TTL.
+const DefaultScanAttestTTL = 24 * time.Hour
 
 // FederationConfig selects the federation registry backend. Nil (the default)
 // means the in-memory registry (single-pod semantics). Set Registry=redis for a
@@ -453,6 +476,22 @@ func loadScanningConfig() *ScanningConfig {
 		RedactStrategy: getEnv("SCANNING_REDACT_STRATEGY", ""),
 		Profile:        getEnv("SCANNING_PROFILE", ""),
 		MinConfidence:  minConf,
+		Attest:         loadScanAttestConfig(),
+	}
+}
+
+// loadScanAttestConfig loads GK-5b attestation config; nil unless
+// SCAN_ATTEST_ENABLED.
+func loadScanAttestConfig() *ScanAttestConfig {
+	if !getEnvAsBool("SCAN_ATTEST_ENABLED", false) {
+		return nil
+	}
+	return &ScanAttestConfig{
+		Enabled:       true,
+		RedisURL:      getEnv("SCAN_ATTEST_REDIS_URL", getEnv("FEDERATION_REDIS_URL", DefaultFederationRedisURL)),
+		GatewayBuilds: getEnvAsSlice("SCAN_ATTEST_GATEWAY_BUILDS", []string{}),
+		GatewayTier:   getEnv("SCAN_ATTEST_GATEWAY_TIER", "internal"),
+		TTL:           getEnvAsDuration("SCAN_ATTEST_TTL", DefaultScanAttestTTL),
 	}
 }
 

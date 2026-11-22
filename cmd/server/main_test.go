@@ -12,7 +12,7 @@ import (
 // controller has an instance to register servers into), regardless of whether
 // reduce-at-source is enabled.
 func TestSetupFederation_AlwaysBuildsManager(t *testing.T) {
-	mgr, reducer := setupFederation(&config.Config{}, zap.NewNop())
+	mgr, reducer, _ := setupFederation(&config.Config{}, zap.NewNop())
 	if mgr == nil {
 		t.Fatal("setupFederation must always return a Manager")
 	}
@@ -26,7 +26,7 @@ func TestSetupFederation_InstallsReducerWhenEnabled(t *testing.T) {
 	cfg := &config.Config{
 		Reduction: &config.ReductionConfig{Enabled: true, OllamaURL: "http://ollama:11434", SLMEnabled: true},
 	}
-	mgr, reducer := setupFederation(cfg, zap.NewNop())
+	mgr, reducer, _ := setupFederation(cfg, zap.NewNop())
 	if mgr == nil {
 		t.Fatal("setupFederation must always return a Manager")
 	}

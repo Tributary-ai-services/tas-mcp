@@ -2,6 +2,10 @@ package federation
 
 import (
 	"context"
+	"sort"
+	"strings"
+
+	"github.com/tributary-ai-services/tas-mcp/internal/identity"
 )
 
 // TrustTier is the federation-local trust classification of a federated MCP
@@ -91,6 +95,43 @@ type scanningResultProcessor struct {
 	tierFor func(serverID string) TrustTier
 	sink    FindingSink
 	redact  bool // false = log-only (observe, don't modify): the default first stage
+
+	// attestor records "this content was scanned" in the shared scan-once
+	// store (Plan #22 T.3 / GK-5b), so the gateway does not scan the same
+	// tool result again. Nil = no attestations.
+	attestor ScanAttestor
+}
+
+// ScanAttestation is what the boundary scan learned about one tool result,
+// in the form the gateway will meet it: the result's text blocks joined by
+// "\n" (the gateway's extractMessagesText join), i.e. what an agent puts in
+// the tool message.
+type ScanAttestation struct {
+	TenantID string
+	Tier     TrustTier
+	// Content is the result text as scanned (before any redaction).
+	Content string
+	// Patterns are the pattern ids found in Content, sorted, unique; empty
+	// means clean.
+	Patterns []string
+	// Redacted is true when the caller receives Output instead of Content.
+	Redacted bool
+	// Output is the delivered text after redaction (set only when Redacted).
+	Output string
+}
+
+// ScanAttestor records scan attestations. It MUST NOT block: Attest runs on
+// the tool-call path. Any failure must leave the gateway to scan normally.
+type ScanAttestor interface {
+	Attest(ctx context.Context, a ScanAttestation)
+}
+
+// ScanOption configures a scanning processor.
+type ScanOption func(*scanningResultProcessor)
+
+// WithAttestor makes the processor attest each fully scanned tool result.
+func WithAttestor(a ScanAttestor) ScanOption {
+	return func(p *scanningResultProcessor) { p.attestor = a }
 }
 
 // ResultScanner scans a tools/call response at the federation boundary. It is a
@@ -109,13 +150,18 @@ type ResultScanner interface {
 // nothing — the draft→enforce first stage.
 //
 // A nil scanner yields a processor that passes every response through unchanged.
-func NewScanningResultProcessor(scanner BlockScanner, tierFor func(string) TrustTier, sink FindingSink, redact bool) ResultScanner {
-	return &scanningResultProcessor{
+func NewScanningResultProcessor(scanner BlockScanner, tierFor func(string) TrustTier, sink FindingSink, redact bool,
+	opts ...ScanOption) ResultScanner {
+	p := &scanningResultProcessor{
 		scanner: scanner,
 		tierFor: tierFor,
 		sink:    sink,
 		redact:  redact,
 	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
 }
 
 // ScanResult scans (and optionally redacts) the text blocks of a tools/call
@@ -137,10 +183,12 @@ func (p *scanningResultProcessor) ScanResult(ctx context.Context, serverID strin
 		tier = p.tierFor(serverID)
 	}
 
-	findings, anyRedacted := p.scanResultContent(ctx, resp, tier)
+	sr := p.scanResultContent(ctx, resp, tier)
+	findings, anyRedacted := sr.findings, sr.redacted
 	// Hand the counts to the tool-call event (T.2): the event reuses this
 	// scan's result, it never scans again.
 	observationFrom(ctx).recordScan(findings)
+	p.attest(ctx, tier, &sr)
 	if len(findings) == 0 {
 		return resp
 	}
@@ -159,25 +207,41 @@ func (p *scanningResultProcessor) ScanResult(ctx context.Context, serverID strin
 	return resp
 }
 
+// scanResult is what scanning one response produced.
+type scanResult struct {
+	findings []ScanFinding
+	redacted bool
+	// complete is true when every text block scanned without error, so the
+	// whole result is known; only then may it be attested.
+	complete bool
+	// in and out are the scanned and the delivered text blocks, in order
+	// (non-empty blocks only, as the gateway reads them).
+	in, out []string
+}
+
 // scanResultContent scans the response's content in place — either a bare-string
 // result or each text block — and returns the aggregated findings plus whether
 // any block was redacted. Redaction writes back through resp.Result / the block
 // setter, so the caller's resp is mutated directly.
-func (p *scanningResultProcessor) scanResultContent(ctx context.Context, resp *MCPResponse, tier TrustTier) ([]ScanFinding, bool) {
-	var findings []ScanFinding
-	anyRedacted := false
+func (p *scanningResultProcessor) scanResultContent(ctx context.Context, resp *MCPResponse, tier TrustTier) scanResult {
+	r := scanResult{complete: true}
 
 	// A bare-string result is held by value on resp, so scan it directly.
 	if s, ok := resp.Result.(string); ok && s != "" {
 		out, ok := p.scanBlock(ctx, s, tier)
-		if ok {
-			findings = append(findings, out.Findings...)
-			if out.Redacted && out.Content != s {
-				resp.Result = out.Content
-				anyRedacted = true
-			}
+		if !ok {
+			r.complete = false
+			return r
 		}
-		return findings, anyRedacted
+		r.findings = append(r.findings, out.Findings...)
+		delivered := s
+		if out.Redacted && out.Content != s {
+			resp.Result = out.Content
+			delivered = out.Content
+			r.redacted = true
+		}
+		r.in, r.out = []string{s}, []string{delivered}
+		return r
 	}
 
 	for _, b := range textBlocks(resp.Result) {
@@ -187,15 +251,61 @@ func (p *scanningResultProcessor) scanResultContent(ctx context.Context, resp *M
 		}
 		out, ok := p.scanBlock(ctx, orig, tier)
 		if !ok {
+			r.complete = false
 			continue
 		}
-		findings = append(findings, out.Findings...)
+		r.findings = append(r.findings, out.Findings...)
+		delivered := orig
 		if out.Redacted && out.Content != orig {
 			b.set(out.Content)
-			anyRedacted = true
+			delivered = out.Content
+			r.redacted = true
 		}
+		r.in = append(r.in, orig)
+		r.out = append(r.out, delivered)
 	}
-	return findings, anyRedacted
+	return r
+}
+
+// attest hands a fully scanned, attributed result to the attestor. A partly
+// scanned result (any block errored) or one without a tenant is never
+// attested: the gateway keys by tenant, and an attestation must cover all of
+// the content it names.
+func (p *scanningResultProcessor) attest(ctx context.Context, tier TrustTier, r *scanResult) {
+	if p.attestor == nil || !r.complete || len(r.in) == 0 {
+		return
+	}
+	id := identity.FromContext(ctx)
+	if id == nil || !id.Attributed || id.TenantID == "" {
+		return
+	}
+	a := ScanAttestation{
+		TenantID: id.TenantID,
+		Tier:     tier,
+		Content:  strings.Join(r.in, "\n"),
+		Patterns: patternSet(r.findings),
+		Redacted: r.redacted,
+	}
+	if r.redacted {
+		a.Output = strings.Join(r.out, "\n")
+	}
+	p.attestor.Attest(ctx, a)
+}
+
+func patternSet(fs []ScanFinding) []string {
+	if len(fs) == 0 {
+		return nil
+	}
+	set := map[string]bool{}
+	for i := range fs {
+		set[fs[i].PatternID] = true
+	}
+	ids := make([]string, 0, len(set))
+	for id := range set {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // scanBlock scans one block, honoring log-only mode. It returns ok=false on a

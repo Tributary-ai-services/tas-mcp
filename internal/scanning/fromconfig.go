@@ -15,11 +15,16 @@ func FromConfig(sc *config.ScanningConfig) Config {
 	if sc == nil {
 		return Config{Enabled: false}
 	}
-	return Config{
+	c := Config{
 		Enabled:        sc.Enabled,
 		Redact:         sc.Redact,
 		RedactStrategy: sc.RedactStrategy,
 		Profile:        sc.Profile,
 		MinConfidence:  sc.MinConfidence,
 	}
+	if a := sc.Attest; a != nil {
+		c.Attest = AttestConfig{Enabled: a.Enabled, RedisURL: a.RedisURL, GatewayBuilds: a.GatewayBuilds,
+			GatewayTier: a.GatewayTier, TTL: a.TTL}
+	}
+	return c
 }
