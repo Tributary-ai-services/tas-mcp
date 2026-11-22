@@ -34,6 +34,8 @@ images:
   # 1.3.0 (Plan #22 T.1/T.2, #36/#37): caller identity and tool-call events.
   # 1.4.0 (T.4 #40 server probes + tool catalogue events, T.3 #41 scan
   # attestations), all behind flags that default off. Pinned by digest.
+  # 1.5.0 (P4-Config C.1, #44): tenant-scoped registry behind
+  # MCP_TENANT_SERVERS (off here until C.3 exists).
   - name: registry-api.tas.scharber.com/tas-mcp
-    newTag: 1.4.0
-    digest: sha256:a30c493ab956d74aeb91fcae1858349ff39335ae79ff9260c9498d63e55f9602
+    newTag: 1.5.0
+    digest: sha256:6ba93bfc10062fd45137d91cd9806516dde70514caa3bbd5edfe1f53df588892
