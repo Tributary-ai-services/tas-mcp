@@ -1,0 +1,20 @@
+{
+  "snapshot_at": "2026-11-21T16:00:00Z",
+  "server_id": "napkin-mcp",
+  "observed_by": "proxy",
+  "tenant_id": null,
+  "tools": [
+    {
+      "name": "check_visual_status",
+      "schema_bytes": 112
+    },
+    {
+      "name": "generate_visual",
+      "schema_bytes": 431
+    },
+    {
+      "name": "list_styles",
+      "schema_bytes": 0
+    }
+  ]
+}

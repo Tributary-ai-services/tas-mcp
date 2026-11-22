@@ -61,6 +61,10 @@ type Manager struct {
 	// T.2, the tool-call event publisher). Nil = no events; the
 	// tas_mcp_tool_call_seconds histogram is recorded regardless.
 	toolCallObserver ToolCallObserver
+
+	// prober probes every registered server on an interval (Plan #22 T.4).
+	// Nil = probes off; ProbeStatus then reports nothing.
+	prober *Prober
 }
 
 // Metrics tracks federation manager statistics

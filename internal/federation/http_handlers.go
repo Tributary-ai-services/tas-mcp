@@ -59,6 +59,7 @@ func (h *HTTPHandlers) RegisterRoutes(router *mux.Router) {
 	// Server operations
 	router.HandleFunc("/api/v1/federation/servers/{id}/invoke", h.handleInvokeServer).Methods("POST")
 	router.HandleFunc("/api/v1/federation/servers/{id}/health", h.handleCheckHealth).Methods("GET")
+	router.HandleFunc("/api/v1/federation/servers/{id}/probe", h.handleGetProbe).Methods("GET")
 
 	// Broadcast operations
 	router.HandleFunc("/api/v1/federation/broadcast", h.handleBroadcast).Methods("POST")
@@ -80,10 +81,49 @@ func (h *HTTPHandlers) handleListServers(w http.ResponseWriter, _ *http.Request)
 		return
 	}
 
+	out := make([]serverView, 0, len(servers))
+	for _, s := range servers {
+		out = append(out, h.view(s))
+	}
 	h.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
-		"servers": servers,
+		"servers": out,
 		"total":   len(servers),
 	})
+}
+
+// serverView is a registered server plus this replica's last probe of it
+// (Plan #22 T.4). Probe is omitted when probes are off or the server has not
+// been probed yet; the operator reads that as Reachable=Unknown.
+type serverView struct {
+	*MCPServer
+	Probe *ProbeResult `json:"probe,omitempty"`
+}
+
+func (h *HTTPHandlers) view(s *MCPServer) serverView {
+	v := serverView{MCPServer: s}
+	if p, ok := h.manager.(ProbeStatusProvider); ok {
+		if r, ok := p.ProbeStatus(s.ID); ok {
+			v.Probe = &r
+		}
+	}
+	return v
+}
+
+// handleGetProbe returns this replica's last probe of a server: 200 with the
+// result, 404 when the server is unknown or not probed yet.
+func (h *HTTPHandlers) handleGetProbe(w http.ResponseWriter, r *http.Request) {
+	serverID := mux.Vars(r)["id"]
+	p, ok := h.manager.(ProbeStatusProvider)
+	if !ok {
+		http.Error(w, "probes not available", http.StatusNotFound)
+		return
+	}
+	res, ok := p.ProbeStatus(serverID)
+	if !ok {
+		http.Error(w, "no probe result for server "+serverID, http.StatusNotFound)
+		return
+	}
+	h.writeJSONResponse(w, http.StatusOK, res)
 }
 
 // handleRegisterServer registers a new MCP server
@@ -123,7 +163,7 @@ func (h *HTTPHandlers) handleGetServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSONResponse(w, http.StatusOK, server)
+	h.writeJSONResponse(w, http.StatusOK, h.view(server))
 }
 
 // handleUnregisterServer removes a server
@@ -240,10 +280,18 @@ func (h *HTTPHandlers) handleGetHealthStatus(w http.ResponseWriter, _ *http.Requ
 		return
 	}
 
-	h.writeJSONResponse(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"status":    status,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	// Probe results (Plan #22 T.4): reachability as a client sees it, which
+	// the registry status above does not track.
+	if p, ok := h.manager.(ProbeStatusProvider); ok {
+		if probes := p.ProbeStatuses(); probes != nil {
+			resp["probes"] = probes
+		}
+	}
+	h.writeJSONResponse(w, http.StatusOK, resp)
 }
 
 // handleGetMetrics returns federation metrics

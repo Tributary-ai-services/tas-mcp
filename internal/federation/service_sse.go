@@ -122,6 +122,12 @@ func (c *SSEClient) Health(ctx context.Context) error {
 	if !c.server.HealthCheck.Enabled {
 		return nil
 	}
+	return c.Initialize(ctx)
+}
+
+// Initialize sends the MCP initialize request. The server probe (probe.go)
+// uses it as its first step regardless of HealthCheck.Enabled.
+func (c *SSEClient) Initialize(ctx context.Context) error {
 	_, err := c.Call(ctx, "initialize", map[string]interface{}{
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]interface{}{},
