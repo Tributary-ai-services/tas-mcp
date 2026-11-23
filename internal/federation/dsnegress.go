@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
 // DSN egress (MCP-19).
+//
+// 0. The host must be plain (hostSyntaxOK): an LDH name, an IP literal with
+//    no zone, or a bracketed IPv6 literal. Anything else is refused.
 //
 // A stored database connection (C.4) names a host and a port the postgres-mcp
 // bridge will dial. Q13's namespace rule alone cannot let a tenant reach the
@@ -28,8 +32,9 @@ import (
 //     (basicHostCheck, as before).
 //  4. Allowed: a service in an allowed namespace (Q13, unchanged). Any other
 //     cluster name, and a bare name, is refused.
-//  5. An IP literal, private or public, passes only when the tenant's
-//     MCP_TENANT_EGRESS_ALLOWLIST lists it.
+//  5. An IP literal passes only when the tenant's MCP_TENANT_EGRESS_ALLOWLIST
+//     lists it and it is public; a private one (RFC 1918, 100.64/10, ULA,
+//     NAT64) only through MCP_DSN_EGRESS_ALLOW.
 //  6. Allowed: a name on the tenant's allowlist. An entry may carry a port
 //     ("db.partner.example:6543"), and then matches that port only; an entry
 //     without one matches any port, as it did before MCP-19.
@@ -61,7 +66,10 @@ func ParseDSNEgressAllow(raw string) ([]HostPort, error) {
 			continue
 		}
 		h, p, err := net.SplitHostPort(item)
-		if err != nil {
+		if err == nil && strings.HasPrefix(item, "[") {
+			h = "[" + h + "]" // SplitHostPort drops the brackets; keep them for the IPv6-only check
+		}
+		if err != nil || !hostSyntaxOK(h) {
 			return nil, fmt.Errorf("MCP_DSN_EGRESS_ALLOW: %q is not host:port", item)
 		}
 		port, err := strconv.Atoi(p)
@@ -98,6 +106,33 @@ func canonicalHost(raw string) string {
 }
 
 const hostLocalhost = "localhost"
+
+// dnsNameRe is an LDH host name: labels of letters, digits and inner hyphens,
+// at most 63 characters each, one optional trailing dot.
+var dnsNameRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$`)
+
+// hostSyntaxOK accepts only a plain host: an LDH name, an IPv4 or IPv6
+// literal with no zone, or one pair of brackets around an IPv6 literal.
+// Whitespace, commas, percent-escapes, nested brackets, a bracketed IPv4
+// address and non-ASCII are refused before anything is canonicalized, so
+// every implementation of the rule (proxy, AIQG, bridge) reads the same host.
+func hostSyntaxOK(raw string) bool {
+	if raw == "" || len(raw) > 255 || strings.Contains(raw, "%") {
+		return false
+	}
+	if strings.HasPrefix(raw, "[") {
+		inner, ok := strings.CutSuffix(raw[1:], "]")
+		if !ok {
+			return false
+		}
+		a, err := netip.ParseAddr(inner)
+		return err == nil && a.Is6()
+	}
+	if _, err := netip.ParseAddr(raw); err == nil {
+		return true
+	}
+	return dnsNameRe.MatchString(raw)
+}
 
 // errAlwaysDenied marks a host no list can allow.
 var errAlwaysDenied = errors.New("never allowed")
@@ -141,6 +176,29 @@ func deniedAddr(a netip.Addr) string {
 	return ""
 }
 
+// Private ranges netip does not call private: RFC 6598 shared address space
+// and the NAT64 prefixes, which a NAT64 gateway turns into IPv4 (so
+// 64:ff9b::a9fe:a9fe is 169.254.169.254).
+var extraPrivate = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+}
+
+// isPrivateAddr reports RFC 1918, RFC 6598, IPv6 unique-local and NAT64.
+func isPrivateAddr(a netip.Addr) bool {
+	a = a.Unmap()
+	if a.IsPrivate() {
+		return true
+	}
+	for _, p := range extraPrivate {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
+}
+
 // ambiguousNumeric reports a host whose last label is a number (no TLD is) or
 // starts with 0x: getaddrinfo reads "127.1", "0177.0.0.1" and "2130706433" as
 // IPv4, so such a name must never be treated as a DNS name.
@@ -172,6 +230,9 @@ type DSNRule struct {
 
 // Check applies the DSN egress rule to host:port for tenant.
 func (r DSNRule) Check(tenant, rawHost string, port int) error {
+	if !hostSyntaxOK(rawHost) {
+		return fmt.Errorf("%w: %q is not a plain host name or IP address", ErrEgressDenied, rawHost)
+	}
 	host := canonicalHost(rawHost)
 	if host == "" {
 		return fmt.Errorf("%w: no host", ErrEgressDenied)
@@ -190,7 +251,12 @@ func (r DSNRule) Check(tenant, rawHost string, port int) error {
 	if r.Policy == nil {
 		return basicHostCheck(host)
 	}
-	p := r.Policy
+	return r.Policy.checkDSNTenant(tenant, host, port)
+}
+
+// checkDSNTenant is rules 4-6 of the DSN egress rule, for a canonical host
+// that rules 0-2 did not decide, with the tenant registry on.
+func (p *TenantPolicy) checkDSNTenant(tenant, host string, port int) error {
 	if ns, ok := clusterNamespace(host); ok {
 		for _, allowed := range p.clusterNamespaces() {
 			if ns == allowed {
@@ -205,6 +271,13 @@ func (r DSNRule) Check(tenant, rawHost string, port int) error {
 	}
 	if !strings.Contains(host, ".") && !isIPLiteral(host) {
 		return fmt.Errorf("%w: host %q is a bare name; use <service>.<namespace>.svc", ErrEgressDenied, host)
+	}
+	// A private IP literal is never opened by a tenant's list: the bridge
+	// refuses private addresses for tenant-listed hosts at dial time, so
+	// allowing one here would store a connection that can never be used.
+	// Only MCP_DSN_EGRESS_ALLOW (checked above) opens one.
+	if a, err := netip.ParseAddr(host); err == nil && isPrivateAddr(a) {
+		return fmt.Errorf("%w: %s is a private address; only MCP_DSN_EGRESS_ALLOW can open one", ErrEgressDenied, host)
 	}
 	if dsnHostAllowed(host, port, p.Egress[tenant]) {
 		return nil

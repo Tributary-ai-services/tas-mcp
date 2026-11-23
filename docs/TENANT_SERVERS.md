@@ -141,12 +141,22 @@ A stored DSN names a host and port that the postgres-mcp bridge dials. The share
 
 The rule is applied in this order. The first rule that matches decides the result:
 
+0. **Only a plain host.** The host must be an LDH name, an IP literal with no zone, or a bracketed IPv6 literal. Whitespace, commas, `%`, nested brackets, a bracketed IPv4 address, underscores and non-ASCII characters are all refused.
 1. **Always refused, even when listed.** This covers `localhost` and `*.localhost`, loopback, link-local (which includes the cloud metadata address `169.254.169.254`), `fd00:ec2::254`, unspecified and multicast addresses, and a host that looks numeric but is not a standard IP literal (`2130706433`, `0x7f.0.0.1`, `127.1`, `0177.0.0.1`). Resolvers read those as IP addresses.
 2. **Allowed:** a pair on `MCP_DSN_EGRESS_ALLOW`.
 3. With `MCP_TENANT_SERVERS` off, only a public DNS name passes, and every other host is refused.
 4. **Allowed:** a service in a namespace listed in `MCP_TENANT_CLUSTER_NAMESPACES`. Any other cluster name, or a bare name, is refused.
-5. An IP literal, private or public, passes only when the tenant's list names it.
+5. A public IP literal passes only when the tenant's list names it. A private one (RFC 1918, `100.64/10`, `fc00::/7`, NAT64 `64:ff9b::/96`) is opened only by `MCP_DSN_EGRESS_ALLOW`, because the bridge refuses private addresses for tenant-listed hosts when it dials.
 6. **Allowed:** a name on the tenant's list, with the port if the entry carries one.
+
+**The rest of the DSN.** Both the proxy (when it injects) and AIQG (when it stores) refuse a DSN with:
+
+- any query parameter other than one `sslmode` from `disable`, `no-verify`, `allow`, `prefer`, `require`, `verify-ca` or `verify-full`. libpq and node-postgres read `host`, `hostaddr`, `port` and the `ssl*` file parameters from the query, so `postgres://u:p@allowed:5432/db?host=10.0.0.9` would otherwise dial 10.0.0.9;
+- a fragment;
+- a user name or database that is not `[A-Za-z0-9._-]+` after decoding;
+- a database of more than one path segment.
+
+The password is free-form. The bridge checks the same fields again in the `_connection` it receives, and refuses any field other than `host`, `port`, `username`, `password`, `database`, `protocol` and `ssl_mode`.
 
 aiqg-dashboard-be applies the same rule when a connection is stored (`internal/mcpconfig/egress.go`), and it reads the same two variables. The postgres-mcp bridge applies it again when it dials (tas-mcp-servers `bridge/src/egress.js`, `BRIDGE_DSN_EGRESS=enforce`). `internal/federation/testdata/dsn_egress_vectors.json` is the same file in all three repos, and each repo's tests pin its sha256. A change to the rule therefore has to change all three repos together.
 
@@ -156,9 +166,9 @@ aiqg-dashboard-be applies the same rule when a connection is stored (`internal/m
 - a host allowed through a tenant's list (rule 5 or 6) must resolve only to public addresses (not RFC 1918, not `100.64/10`, not `fc00::/7`);
 - an entry on the platform list or in a cluster namespace may resolve to a ClusterIP.
 
-The bridge then hands the database the address it checked, not the name. So a second lookup cannot return a different answer. The exception is `sslmode=require`, `verify-ca` or `verify-full`: there the name is kept, because the certificate check needs it, and TLS identity then refuses a rebound target.
+The bridge then hands the database the address it checked, not the name. So a second lookup cannot return a different answer. The exception is `sslmode` `allow`, `prefer`, `require`, `verify-ca` or `verify-full`: node-postgres (pg-connection-string 2.x, pinned in the postgres-mcp manifest) verifies the certificate against the name for every one of them. There the name is kept, and TLS identity refuses a rebound target.
 
-**NetworkPolicy.** The proxy never dials a DSN, so `prod-tas-mcp-netpol` needs no change for MCP-19. As of 2026-11-23, no NetworkPolicy governs `tas-mcp-servers` or `tas-shared`, so postgres-mcp can already reach `postgres-shared:5432`. A default-deny for `tas-mcp-servers` is a separate follow-up. When it lands, it must allow postgres-mcp to reach TCP 5432 on `postgres-shared` and nothing broader.
+**NetworkPolicy.** The proxy never dials a DSN, so `prod-tas-mcp-netpol` needs no change for MCP-19. postgres-mcp gets an **ingress** policy (tas-mcp-servers `k8s/postgres-mcp/networkpolicy.yaml`) that admits only these proxy pods on TCP 8000, because the bridge's Service has no auth and would otherwise take a `_connection` from any pod. No policy governs egress from `tas-mcp-servers` or ingress to `tas-shared`. A default-deny there is a follow-up, and it must still let postgres-mcp reach TCP 5432 on `postgres-shared`.
 ### Kinds
 
 | Kind | Params (non-secret) | Secret | What the proxy does |

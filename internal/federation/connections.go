@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -575,6 +576,48 @@ type dbConnection struct {
 	SSLMode  string `json:"ssl_mode,omitempty"`
 }
 
+// DSNSSLModes are the sslmode values a stored DSN may carry (MCP-19); empty
+// = none given. The same set as aiqg-dashboard-be and the postgres-mcp bridge.
+var DSNSSLModes = map[string]bool{"disable": true, "no-verify": true, "allow": true, "prefer": true,
+	"require": true, "verify-ca": true, "verify-full": true}
+
+// dsnIdentRe is what a DSN's user name and database may hold. The bridge
+// builds a URL from them, so anything that could start a new URL part (@ : /
+// ? # & =) is refused, decoded or not.
+var dsnIdentRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// checkDSNParts refuses a DSN whose parts could move the connection (MCP-19
+// re-review). Only sslmode is allowed in the query (one value, from
+// DSNSSLModes): libpq and node-postgres both read host, hostaddr, port and the
+// ssl* file parameters from it, so postgres://u:p@allowed:5432/db?host=10.0.0.9
+// would dial 10.0.0.9 while its authority passed the egress check. The user
+// name and the database must match dsnIdentRe (after decoding); the database
+// is one path segment. The password is free-form.
+func checkDSNParts(u *url.URL) error {
+	if u.Opaque != "" || u.Fragment != "" || u.RawFragment != "" || strings.Contains(u.RawQuery, ";") {
+		return errors.New("database DSN must be scheme://user:password@host:port/database[?sslmode=...]")
+	}
+	if u.User == nil || !dsnIdentRe.MatchString(u.User.Username()) {
+		return errors.New("database DSN user name must be letters, digits, '.', '_' or '-'")
+	}
+	if db := strings.TrimPrefix(u.Path, "/"); !strings.HasPrefix(u.Path, "/") || !dsnIdentRe.MatchString(db) {
+		return errors.New("database DSN must name one database of letters, digits, '.', '_' or '-'")
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return errors.New("database DSN query does not parse")
+	}
+	for k, v := range q {
+		if k != "sslmode" {
+			return fmt.Errorf("database DSN may carry only the sslmode parameter, not %q", k)
+		}
+		if len(v) != 1 || !DSNSSLModes[v[0]] {
+			return errors.New("database DSN sslmode must be one of disable, no-verify, allow, prefer, require, verify-ca, verify-full")
+		}
+	}
+	return nil
+}
+
 // Default database ports, by DSN scheme.
 const (
 	portPostgres  = 5432
@@ -593,6 +636,9 @@ func dsnValue(dsn, format string) (value interface{}, secrets []string, host str
 	u, perr := url.Parse(dsn)
 	if perr != nil || u.Scheme == "" || u.Host == "" {
 		return nil, nil, "", 0, errors.New("database DSN is not a URL")
+	}
+	if err := checkDSNParts(u); err != nil {
+		return nil, nil, "", 0, err
 	}
 	pw, _ := u.User.Password()
 	secrets = []string{dsn, pw}

@@ -16,7 +16,7 @@ import (
 // (bridge/test), each pinned to this hash, so the proxy, AIQG and the bridge
 // are tested against one set of answers. Change all three files and all three
 // constants together.
-const dsnEgressVectorsSHA256 = "2a2c2469c79b6d36a82fa85836921e1206f7788066bb82709ff9f08c15f4f778"
+const dsnEgressVectorsSHA256 = "05b7ea3cc0d6cfc2fa5abedb7b86c5a095ced6840f82fbe43c7bf1508868ec16"
 
 type dsnVectors struct {
 	Config struct {
@@ -33,6 +33,11 @@ type dsnVectors struct {
 		Registry *bool  `json:"registry"`
 		Allow    bool   `json:"allow"`
 	} `json:"cases"`
+	DSNCases []struct {
+		Name  string `json:"name"`
+		DSN   string `json:"dsn"`
+		Allow bool   `json:"allow"`
+	} `json:"dsn_cases"`
 }
 
 func loadDSNVectors(t *testing.T) dsnVectors {
@@ -83,6 +88,35 @@ func TestDSNEgress_Vectors(t *testing.T) {
 	}
 }
 
+// TestDSNEgress_DSNVectors: the use-time check of a whole stored DSN (its
+// parts, then its host and port), in both injection formats. The re-review's
+// LOW-A: a query host= passed on the authority alone.
+func TestDSNEgress_DSNVectors(t *testing.T) {
+	v := loadDSNVectors(t)
+	platform, err := ParseDSNEgressAllow(v.Config.DSNEgressAllow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := DSNRule{Platform: platform, Policy: &TenantPolicy{Egress: v.Config.TenantAllow, ClusterNamespaces: v.Config.Namespaces}}
+	if len(v.DSNCases) < 20 {
+		t.Fatalf("only %d dsn vectors", len(v.DSNCases))
+	}
+	for _, c := range v.DSNCases {
+		for _, format := range []string{connFormatObject, connFormatString} {
+			_, _, host, port, err := dsnValue(c.DSN, format)
+			if err == nil {
+				err = rule.Check(v.Config.Tenants["a"], host, port)
+			}
+			if (err == nil) != c.Allow {
+				t.Errorf("%s (%s): allowed=%v, want %v (%v)", c.Name, format, err == nil, c.Allow, err)
+			}
+			if err != nil && strings.Contains(err.Error(), "pw-12345678") {
+				t.Errorf("%s (%s): error quotes the password", c.Name, format)
+			}
+		}
+	}
+}
+
 func TestParseDSNEgressAllow(t *testing.T) {
 	got, err := ParseDSNEgressAllow(" postgres-shared.tas-shared.svc:5432 , [2001:db8::5]:5432,,")
 	if err != nil || len(got) != 2 || got[0].String() != "postgres-shared.tas-shared.svc.cluster.local:5432" ||
@@ -99,6 +133,7 @@ func TestParseDSNEgressAllow(t *testing.T) {
 		"*.tas-shared.svc.cluster.local:5432", // no wildcards
 		"127.0.0.1:5432", "localhost:5432", "169.254.169.254:80", "[::1]:5432", "127.1:5432",
 		"ok.example:5432,bad", // one bad entry fails the list
+		"[[ok.example]]:5432", "[203.0.113.7]:5432", "ok example:5432", "%6bx.example:5432",
 	} {
 		if got, err := ParseDSNEgressAllow(bad); err == nil {
 			t.Errorf("%q accepted: %v", bad, got)
@@ -126,6 +161,8 @@ func TestDSNEgress_Injection(t *testing.T) {
 		{"mysql scheme default port", "mysql://u:pw-12345678@postgres-shared.tas-shared.svc.cluster.local/db", false},
 		{"metadata", "postgres://u:pw-12345678@169.254.169.254:5432/db", false},
 		{"loopback", "postgres://u:pw-12345678@[::1]:5432/db", false},
+		{"query host (LOW-A)", "postgres://u:pw-12345678@postgres-shared.tas-shared.svc.cluster.local:5432/org_db?host=10.0.0.9", false},
+		{"encoded database query", "postgres://u:pw-12345678@postgres-shared.tas-shared.svc.cluster.local:5432/d%3Fhost%3D10.0.0.9", false},
 	} {
 		for _, format := range []string{connFormatObject, connFormatString} {
 			e := newConnEnv(t)
