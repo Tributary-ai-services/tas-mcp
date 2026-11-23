@@ -80,6 +80,10 @@ type Data struct {
 	Findings        map[string]int `json:"findings"`
 	ScanSkipped     bool           `json:"scan_skipped"`
 	OccurredAt      string         `json:"occurred_at"`
+	// DelegatedBy names the service that made a delegated call (AIQG-88),
+	// e.g. "aether-be"; null otherwise. On a delegated call user_id is the
+	// acting user's Keycloak sub, verified as a member of the org.
+	DelegatedBy *string `json:"delegated_by"`
 }
 
 func nullable(s string) *string {
@@ -117,6 +121,7 @@ func BuildData(rec federation.ToolCallRecord) Data { //nolint:gocritic // value 
 		d.SourceApp = nullable(id.SourceApp)
 		d.FlowID = nullable(id.FlowID)
 		d.StepID = nullable(id.StepID)
+		d.DelegatedBy = nullable(id.DelegatedBy)
 	}
 	return d
 }

@@ -71,6 +71,10 @@ type Config struct {
 	// ConnectionInjection turns on per-tenant connection injection (Plan #22
 	// C.4). Nil (MCP_CONNECTION_INJECTION unset) resolves and injects nothing.
 	ConnectionInjection *ConnectionInjectionConfig `json:"connection_injection,omitempty"`
+	// Delegation turns on the delegate credential (Plan #22 AIQG-88): one
+	// service credential, accepted only on tool invoke, that names the org and
+	// user it acts for. Nil = off (MCP_DELEGATION_ENABLED unset).
+	Delegation *DelegationConfig `json:"delegation,omitempty"`
 	// ConnectionRequiredServers is MCP_CONNECTION_REQUIRED_SERVERS: servers
 	// that never serve a call on their own login. It is read whether or not
 	// injection is on, so turning injection off fails closed for them.
@@ -96,6 +100,28 @@ type ConnectionInjectionConfig struct {
 	// Rotation takes effect within it.
 	CacheTTL time.Duration `json:"cache_ttl,omitempty"`
 }
+
+// DelegationConfig configures the delegate credential (AIQG-88).
+type DelegationConfig struct {
+	Enabled bool `json:"enabled"`
+	// Token is MCP_DELEGATE_TOKEN, sent by the delegate in TAS-MCP-Delegate-Token.
+	// Never logged or serialized.
+	Token string `json:"-"`
+	// Name is MCP_DELEGATE_NAME, recorded on events as delegated_by
+	// (default aether-be).
+	Name string `json:"name,omitempty"`
+	// DashboardURL is AIQG_DASHBOARD_URL: the delegation verify endpoint is on
+	// the same service as the identity validator.
+	DashboardURL string `json:"dashboard_url,omitempty"`
+	// VerifyToken is MCP_DELEGATION_VERIFY_TOKEN, sent as Internal-Auth to
+	// /internal/mcp/delegation/verify. A token of its own. Never logged.
+	VerifyToken string `json:"-"`
+	// CacheTTL is how long a verify answer is reused (default 60s).
+	CacheTTL time.Duration `json:"cache_ttl,omitempty"`
+}
+
+// DefaultDelegationCacheTTL matches the identity validator's cache.
+const DefaultDelegationCacheTTL = 60 * time.Second
 
 // DefaultConnectionCacheTTL is the connection cache TTL (design §9.6).
 const DefaultConnectionCacheTTL = 60 * time.Second
@@ -445,6 +471,17 @@ func Load() *Config {
 
 	if getEnvAsBool("MCP_TENANT_SERVERS", false) {
 		config.TenantServers = loadTenantServersConfig()
+	}
+
+	if getEnvAsBool("MCP_DELEGATION_ENABLED", false) {
+		config.Delegation = &DelegationConfig{
+			Enabled:      true,
+			Token:        getEnv("MCP_DELEGATE_TOKEN", ""),
+			Name:         getEnv("MCP_DELEGATE_NAME", "aether-be"),
+			DashboardURL: getEnv("AIQG_DASHBOARD_URL", ""),
+			VerifyToken:  getEnv("MCP_DELEGATION_VERIFY_TOKEN", ""),
+			CacheTTL:     getEnvAsDuration("MCP_DELEGATION_CACHE_TTL", DefaultDelegationCacheTTL),
+		}
 	}
 
 	// Load federation registry configuration if a backend is chosen

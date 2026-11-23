@@ -25,6 +25,15 @@ type HTTPHandlers struct {
 	// Nil = identity disabled: no resolution, no validator call, and the
 	// request context carries no Identity (Plan #22 T.1).
 	identity *identity.Resolver
+
+	// delegation is the delegate credential (AIQG-88). Nil = off: the
+	// delegate headers mean nothing, as before.
+	delegation *Delegation
+}
+
+// SetDelegation installs the delegate credential. Nil turns it off.
+func (h *HTTPHandlers) SetDelegation(d *Delegation) {
+	h.delegation = d
 }
 
 // SetIdentityResolver installs caller-identity resolution (observe mode). A nil
@@ -361,6 +370,11 @@ func (h *HTTPHandlers) handleInvokeServer(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if id := identity.FromContext(ctx); id != nil && id.Result == identity.ResultDelegated && !DelegableMethod(request.Method) {
+		delegationOutcomes.WithLabelValues("wrong_method").Inc()
+		http.Error(w, "the delegate credential may only run tools/list and tools/call", http.StatusForbidden)
+		return
+	}
 	// Set request ID if not provided, and say so: the tool-call event must
 	// not use a proxy-minted id as a join key.
 	if request.ID == "" {
@@ -393,6 +407,9 @@ const OnBehalfOfTenantHeader = "TAS-MCP-On-Behalf-Of-Tenant"
 // token, or, for an admin-token call naming a tenant in
 // OnBehalfOfTenantHeader, that tenant. A malformed tenant id is a 400.
 func (h *HTTPHandlers) invokeIdentity(w http.ResponseWriter, r *http.Request) (context.Context, bool) {
+	if h.delegation != nil && HasDelegateHeader(r) {
+		return h.delegatedIdentity(w, r)
+	}
 	t := r.Header.Get(OnBehalfOfTenantHeader)
 	p := h.tenancy()
 	if t == "" || p == nil || !p.IsAdmin(r) {
@@ -405,6 +422,83 @@ func (h *HTTPHandlers) invokeIdentity(w http.ResponseWriter, r *http.Request) (c
 	return identity.WithIdentity(r.Context(), &identity.Identity{
 		Attributed: true, Result: identity.ResultOnBehalf, TenantID: strings.ToLower(t),
 	}), true
+}
+
+// delegatedIdentity authenticates a delegate-credential invoke and verifies,
+// through aiqg-dashboard-be, the org, tenant and user it names. It fails
+// closed: a bad credential or a refusal is a 403, an unanswerable verify is a
+// 503, and in neither case does the call reach a server. The credential is
+// never logged.
+func (h *HTTPHandlers) delegatedIdentity(w http.ResponseWriter, r *http.Request) (context.Context, bool) {
+	d := h.delegation
+	if r.Header.Get("TAS-Auth") != "" || r.Header.Get(AdminTokenHeader) != "" {
+		delegationOutcomes.WithLabelValues("ambiguous").Inc()
+		http.Error(w, "send the delegate credential alone, without TAS-Auth or an admin token", http.StatusBadRequest)
+		return nil, false
+	}
+	if !d.Matches(r.Header.Get(DelegateTokenHeader)) {
+		delegationOutcomes.WithLabelValues("bad_token").Inc()
+		h.logger.Warn("federation: delegated invoke refused: invalid delegate credential", zap.String("path", r.URL.Path))
+		http.Error(w, "invalid "+DelegateTokenHeader, http.StatusForbidden)
+		return nil, false
+	}
+	org := strings.TrimSpace(r.Header.Get(OnBehalfOfOrgHeader))
+	user := strings.TrimSpace(r.Header.Get(OnBehalfOfUserHeader))
+	tenant := strings.ToLower(strings.TrimSpace(r.Header.Get(OnBehalfOfTenantHeader)))
+	if !ValidDelegateID(org) || !ValidDelegateID(user) || (tenant != "" && !isUUID(tenant)) {
+		delegationOutcomes.WithLabelValues("bad_headers").Inc()
+		http.Error(w, "a delegated call needs "+OnBehalfOfOrgHeader+" and "+OnBehalfOfUserHeader+
+			" (and, if sent, a UUID in "+OnBehalfOfTenantHeader+")", http.StatusBadRequest)
+		return nil, false
+	}
+	g, err := d.Verifier.Verify(r.Context(), org, tenant, user)
+	switch {
+	case err == nil && g != nil:
+	case errors.Is(err, ErrDelegationRefused):
+		delegationOutcomes.WithLabelValues("refused").Inc()
+		code := refusalUnspecified
+		var ref *DelegationRefusal
+		if errors.As(err, &ref) {
+			code = ref.Code
+		}
+		h.logger.Warn("federation: delegated invoke refused",
+			zap.String("delegated_by", d.Name), zap.String("aether_org_id", org), zap.String("code", code))
+		http.Error(w, "delegated call refused: "+code, http.StatusForbidden)
+		return nil, false
+	default:
+		delegationOutcomes.WithLabelValues("unavailable").Inc()
+		h.logger.Warn("federation: delegated invoke refused: verify unavailable", zap.Error(err))
+		http.Error(w, "delegated call could not be verified; retry", http.StatusServiceUnavailable)
+		return nil, false
+	}
+	delegationOutcomes.WithLabelValues("verified").Inc()
+	return identity.WithIdentity(r.Context(), &identity.Identity{
+		Attributed:  true,
+		Result:      identity.ResultDelegated,
+		TenantID:    g.TenantID,
+		Suspended:   g.Suspended,
+		UserID:      g.UserSub,
+		DelegatedBy: d.Name,
+		AetherOrgID: org,
+		SourceApp:   d.Name,
+		ToolCallID:  clipHeader(r.Header.Get("TAS-Tool-Call-Id")),
+		AgentID:     clipHeader(r.Header.Get("TAS-Agent-Id")),
+		FlowID:      clipHeader(r.Header.Get("TAS-Flow-Id")),
+		StepID:      clipHeader(r.Header.Get("TAS-Step-Id")),
+	}), true
+}
+
+// maxDelegatedHeaderLen caps a self-asserted header copied into an event, as
+// the identity resolver does.
+const maxDelegatedHeaderLen = 256
+
+// clipHeader bounds a self-asserted header copied into an event.
+func clipHeader(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > maxDelegatedHeaderLen {
+		return s[:maxDelegatedHeaderLen]
+	}
+	return s
 }
 
 // isUUID reports whether s is a UUID in the 8-4-4-4-12 form.

@@ -195,6 +195,36 @@ func installConnectionInjection(mgr *federation.Manager, cfg *config.Config, zap
 		zap.Duration("cache_ttl", c.CacheTTL))
 }
 
+// buildDelegation turns on the delegate credential (AIQG-88) when
+// MCP_DELEGATION_ENABLED is set. It needs caller identity and the tenant
+// registry (a delegated call is attributed to a tenant, and only the tenant
+// registry gives that meaning), the delegate token and the verify endpoint;
+// without any of them it stays off and says why. The token is never logged.
+func buildDelegation(cfg *config.Config, zapLogger *zap.Logger) *federation.Delegation {
+	c := cfg.Delegation
+	if c == nil || !c.Enabled {
+		return nil
+	}
+	if cfg.Identity == nil || !cfg.Identity.Enabled || cfg.TenantServers == nil || !cfg.TenantServers.Enabled {
+		zapLogger.Warn("delegation: needs IDENTITY_ENABLED and MCP_TENANT_SERVERS; delegate credential stays off")
+		return nil
+	}
+	v, err := federation.NewDashboardDelegationVerifier(c.DashboardURL, c.VerifyToken)
+	if err != nil {
+		zapLogger.Warn("delegation: verifier not configured; delegate credential stays off", zap.Error(err))
+		return nil
+	}
+	d, err := federation.NewDelegation(c.Token, c.Name, cfg.TenantServers.AdminToken,
+		federation.NewCachingDelegationVerifier(v, c.CacheTTL))
+	if err != nil {
+		zapLogger.Warn("delegation: delegate credential rejected; it stays off", zap.Error(err))
+		return nil
+	}
+	zapLogger.Info("delegation: enabled (tool invoke only)",
+		zap.String("delegate", d.Name), zap.String("dashboard_url", c.DashboardURL), zap.Duration("cache_ttl", c.CacheTTL))
+	return d
+}
+
 // buildFederationRegistry selects the registry backend from config. Default is
 // the in-process memory registry; FEDERATION_REGISTRY=redis uses a shared Redis
 // registry so multiple gateway replicas agree on the federated set. A redis
@@ -401,6 +431,7 @@ func setupHTTPServer(
 	// requests reach Manager.InvokeServer (the reduce-at-source choke point).
 	httpSrv := httpserver.NewServerWithFederation(zapLogger, mcpServer, forwarder, federationManager)
 	httpSrv.SetIdentityResolver(buildIdentityResolver(cfg, zapLogger))
+	httpSrv.SetDelegation(buildDelegation(cfg, zapLogger))
 	httpServerInstance := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:      httpSrv.Handler(),

@@ -92,7 +92,10 @@ func TestData_FieldSet(t *testing.T) {
 	_ = json.Unmarshal(b, &m)
 	want := []string{"tenant_id", "token_id", "owner_sub", "user_id", "agent_id", "source_app", "flow_id", "step_id",
 		"tool_call_id", "tool_name", "server_id", "observed_by", "outcome", "duration_ms", "result_bytes",
-		"result_tokens_est", "reduced_bytes", "findings", "scan_skipped", "occurred_at"}
+		"result_tokens_est", "reduced_bytes", "findings", "scan_skipped", "occurred_at",
+		// AIQG-88: additive. The Spark job reads an explicit schema, so it
+		// ignores the field until 009 gains a column for it.
+		"delegated_by"}
 	if len(m) != len(want) {
 		t.Fatalf("field count %d, want %d: %v", len(m), len(want), m)
 	}
