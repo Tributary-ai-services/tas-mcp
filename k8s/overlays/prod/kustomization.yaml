@@ -39,6 +39,9 @@ images:
   # 1.6.0 (P4-Config C.4, #46): per-tenant connection injection behind
   # MCP_CONNECTION_INJECTION (off).
   # 1.7.0 (SEC-38, #50): MCP_CONNECTION_REQUIRED_SERVERS, on for postgres-mcp.
+  # 1.8.0 (#52 delegate credential, MCP_DELEGATION_ENABLED unset = off; #53
+  # MCP-19 DSN egress by host:port, MCP_DSN_EGRESS_ALLOW in base). Built from
+  # 85b18b9 with Gatekeeper 8439cfe, Hyperscan linked.
   - name: registry-api.tas.scharber.com/tas-mcp
-    newTag: 1.7.0
-    digest: sha256:204db206816dc090dd1db6c3bbd002c2277db45dfa99140b3debdb8cc79ddcda
+    newTag: 1.8.0
+    digest: sha256:f299a6626d4f653c8d87ccbfe9fce384d607b3f194e47dcd59c71e6dc546ba70
