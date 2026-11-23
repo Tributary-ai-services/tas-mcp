@@ -42,11 +42,21 @@ data:
   # postgres-mcp, not dbhub: dbhub is stock bytebase/dbhub with its DSN in its
   # own config and never reads _connection; postgres-mcp runs the TAS bridge,
   # which takes _connection per call (what aether-be injects today) and keys
-  # its sessions by tenant + full connection (SEC-37). Egress stays at the
-  # defaults on both sides (in-cluster hosts in tas-mcp-servers only, no
-  # external hosts), so the two allowlists match.
+  # its sessions by tenant + full connection (SEC-37). Egress: in-cluster
+  # hosts in tas-mcp-servers, plus MCP_DSN_EGRESS_ALLOW below; no external
+  # hosts (MCP_TENANT_EGRESS_ALLOWLIST unset).
   MCP_CONNECTION_INJECTION: "true"
   MCP_CONNECTION_SERVERS: "postgres-mcp=database_dsn"
+  # MCP-19: the exact host:port pairs any tenant's stored DSN may name, so a
+  # TAS org's database on the shared PostgreSQL is reachable without opening
+  # the rest of tas-shared (Redis, Keycloak, Kafka, MinIO stay refused). Read
+  # by the first tas-mcp release with MCP-19 (1.7.0 ignores it). The SAME value must be set on
+  # aiqg-dashboard-be (k8s/configmap.yaml) and on postgres-mcp
+  # (tas-mcp-servers k8s/postgres-mcp/deployment.yaml), or a connection AIQG
+  # accepts is refused here (or the reverse). Comma-separated; each entry needs
+  # a port; one bad entry disables the whole list. docs/TENANT_SERVERS.md
+  # "DSN egress".
+  MCP_DSN_EGRESS_ALLOW: "postgres-shared.tas-shared.svc.cluster.local:5432"
   # SEC-38: postgres-mcp never runs a call on its own login through the proxy.
   # No stored connection = 403; tools/list stays open; broadcast skips it.
   MCP_CONNECTION_REQUIRED_SERVERS: "postgres-mcp"

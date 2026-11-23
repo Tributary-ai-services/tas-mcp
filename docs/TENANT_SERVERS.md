@@ -110,6 +110,7 @@ The feature is off by default. With `MCP_CONNECTION_INJECTION` unset, nothing is
 | `MCP_CONNECTIONS_RESOLVE_TOKEN` | — | Sent as `Internal-Auth` to `/internal/mcp/connections/*`. It is a token of its own, not the shared `INTERNAL_AUTH_TOKEN`, so the router (which holds the shared one) cannot read connection secrets. Without it injection stays off. Never logged. |
 | `MCP_CONNECTION_SERVERS` | empty | `id=kind,id=kind`: the connection kind a **platform** server takes, e.g. `dbhub=database_dsn`. A tenant server says so in its record (`connection_kind`, written by AIQG). |
 | `MCP_CONNECTION_REQUIRED_SERVERS` | empty | `id,id`: servers that never run a call on their own login. Read even with injection off, in which case they refuse every call but `tools/list`. Environment only: a `-config` file start does not read it. |
+| `MCP_DSN_EGRESS_ALLOW` | empty (deny) | `host:port,host:port`: the database hosts that every tenant's stored DSN may name, on top of Q13. See [DSN egress](#dsn-egress-mcp-19). |
 | `MCP_CONNECTION_CACHE_TTL` | `60s` | How long a resolved connection, the answer "none", and the cross-tenant server list are kept in memory. A rotation takes effect within this window. Errors are never cached. |
 
 ### Which servers take connections
@@ -125,9 +126,49 @@ A server **takes connections** when its record declares a `connection_kind`, whe
 - **Suspended accounts.** A suspended account's call to a server that takes connections, or for which that tenant has one, is refused with **403**, as aiqg-dashboard-be's data plane refuses a suspended token. Its connection is never used, and no OAuth grant runs with its secret. A suspended call to a server without connections is still served.
 - **Fail closed.** If the resolver cannot answer, or a connection cannot be applied (an OAuth grant fails, a host breaks the egress rule), the call is refused with **503** and the upstream server is not contacted. The response carries only a generic message; the detail is logged at Warn.
 - **No caller-chosen database.** On a server that takes `database_dsn` connections, a caller-supplied `_connection` (and every argument name a tenant's DSN connection uses) is removed from `tools/call` for every caller, whether or not the caller's tenant has a connection. While the server list cannot be read, `_connection` is removed from every call.
-- **Egress (Q13) for stored values too.** A DSN's host and an OAuth `token_url` pass the same rule as a tenant server endpoint: an in-cluster host must be a service in `MCP_TENANT_CLUSTER_NAMESPACES`, and any other host must be on the tenant's `MCP_TENANT_EGRESS_ALLOWLIST` (an IP literal only when it is listed itself). Other cluster names (`*.svc`, `*.cluster.local`, `localhost`) are refused. With `MCP_TENANT_SERVERS` off there is no allowlist, so only public DNS names pass: IP literals, bare names and cluster names are refused. A token URL must be `https`, and **redirects from a token endpoint are refused**, because the target of a redirect passed no egress check and would receive the client secret.
+- **Egress (Q13) for stored values too.** An OAuth `token_url` passes the same rule as a tenant server endpoint. A DSN's host passes the **DSN egress rule** below, which is checked by host **and port**. A token URL must be `https`, and **redirects from a token endpoint are refused**, because the target of a redirect passed no egress check and would receive the client secret.
+
 - **Injected values never reach the proxy's own outputs.** The connection is added to a copy of the request that only the upstream call sees. The boundary scanner, the reducer and the tool-call event see the caller's request. Every injected value (the secret, the full header value, an OAuth access token, a DSN and its password) is replaced with `[REDACTED]` in the response (map keys included), in `error.message`, in the error text and therefore in the log lines, before the scanner runs, so a finding cannot quote one either. Each value is redacted in its raw, JSON-escaped (with and without HTML escaping), URL-escaped and base64 (standard and URL, padded and raw) forms. An upstream error body is redacted **before** it is cut to its 256-byte preview, and a prefix of 8 or more characters of a secret left at the cut is redacted too. Values shorter than 4 characters are not redacted.
 
+### DSN egress (MCP-19)
+
+A stored DSN names a host and port that the postgres-mcp bridge dials. The shared PostgreSQL that TAS organizations' databases live on is `postgres-shared.tas-shared.svc.cluster.local:5432`. Adding `tas-shared` to `MCP_TENANT_CLUSTER_NAMESPACES` would also open Redis, Keycloak, Kafka and MinIO to any tenant DSN, so the shared PostgreSQL is opened by an exact pair instead.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MCP_DSN_EGRESS_ALLOW` | empty (deny) | Comma-separated `host:port` pairs that **every** tenant's stored DSN may name, for example `postgres-shared.tas-shared.svc.cluster.local:5432`. Each entry needs a port. No wildcards. `x.ns.svc` and `x.ns.svc.cluster.local` are the same entry. A malformed entry, or an entry that rule 1 below always refuses, makes the proxy ignore the **whole** list (fail closed) and log a Warn. It applies to DSNs only: it never opens a tenant server endpoint or a token URL. |
+| `MCP_TENANT_EGRESS_ALLOWLIST` | `{}` | The per-tenant list (Q13). For a DSN, an entry may carry a port (`db.partner.example:6543`, `[2001:db8::5]:5432`) and then matches that port only. An entry without a port matches any port, as before. |
+
+The rule is applied in this order. The first rule that matches decides the result:
+
+0. **Only a plain host.** The host must be an LDH name, an IP literal with no zone, or a bracketed IPv6 literal. Whitespace, commas, `%`, nested brackets, a bracketed IPv4 address, underscores and non-ASCII characters are all refused.
+1. **Always refused, even when listed.** This covers `localhost` and `*.localhost`, loopback, link-local (which includes the cloud metadata address `169.254.169.254`), `fd00:ec2::254`, unspecified and multicast addresses, and a host that looks numeric but is not a standard IP literal (`2130706433`, `0x7f.0.0.1`, `127.1`, `0177.0.0.1`). Resolvers read those as IP addresses.
+2. **Allowed:** a pair on `MCP_DSN_EGRESS_ALLOW`.
+3. With `MCP_TENANT_SERVERS` off, only a public DNS name passes, and every other host is refused.
+4. **Allowed:** a service in a namespace listed in `MCP_TENANT_CLUSTER_NAMESPACES`. Any other cluster name, or a bare name, is refused.
+5. A public IP literal passes only when the tenant's list names it. A private one (RFC 1918, `100.64/10`, `fc00::/7`, NAT64 `64:ff9b::/96`) is opened only by `MCP_DSN_EGRESS_ALLOW`, because the bridge refuses private addresses for tenant-listed hosts when it dials.
+6. **Allowed:** a name on the tenant's list, with the port if the entry carries one.
+
+**The rest of the DSN.** Both the proxy (when it injects) and AIQG (when it stores) refuse a DSN with:
+
+- any query parameter other than one `sslmode` from `disable`, `no-verify`, `allow`, `prefer`, `require`, `verify-ca` or `verify-full`. libpq and node-postgres read `host`, `hostaddr`, `port` and the `ssl*` file parameters from the query, so `postgres://u:p@allowed:5432/db?host=10.0.0.9` would otherwise dial 10.0.0.9;
+- a fragment;
+- a user name or database that is not `[A-Za-z0-9._-]+` after decoding;
+- a database of more than one path segment.
+
+The password is free-form. The bridge checks the same fields again in the `_connection` it receives, and refuses any field other than `host`, `port`, `username`, `password`, `database`, `protocol` and `ssl_mode`.
+
+aiqg-dashboard-be applies the same rule when a connection is stored (`internal/mcpconfig/egress.go`), and it reads the same two variables. The postgres-mcp bridge applies it again when it dials (tas-mcp-servers `bridge/src/egress.js`, `BRIDGE_DSN_EGRESS=enforce`). `internal/federation/testdata/dsn_egress_vectors.json` is the same file in all three repos, and each repo's tests pin its sha256. A change to the rule therefore has to change all three repos together.
+
+**DNS rebinding.** The proxy and AIQG never dial a DSN, so they check names only. The bridge resolves the name and checks every address it gets back:
+
+- loopback, link-local, metadata and unspecified addresses are never allowed;
+- a host allowed through a tenant's list (rule 5 or 6) must resolve only to public addresses (not RFC 1918, not `100.64/10`, not `fc00::/7`);
+- an entry on the platform list or in a cluster namespace may resolve to a ClusterIP.
+
+The bridge then hands the database the address it checked, not the name. So a second lookup cannot return a different answer. The exception is `sslmode` `allow`, `prefer`, `require`, `verify-ca` or `verify-full`: node-postgres (pg-connection-string 2.x, pinned in the postgres-mcp manifest) verifies the certificate against the name for every one of them. There the name is kept, and TLS identity refuses a rebound target.
+
+**NetworkPolicy.** The proxy never dials a DSN, so `prod-tas-mcp-netpol` needs no change for MCP-19. postgres-mcp gets an **ingress** policy (tas-mcp-servers `k8s/postgres-mcp/networkpolicy.yaml`) that admits only these proxy pods on TCP 8000, because the bridge's Service has no auth and would otherwise take a `_connection` from any pod. No policy governs egress from `tas-mcp-servers` or ingress to `tas-shared`. A default-deny there is a follow-up, and it must still let postgres-mcp reach TCP 5432 on `postgres-shared`.
 ### Kinds
 
 | Kind | Params (non-secret) | Secret | What the proxy does |
