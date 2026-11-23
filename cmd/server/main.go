@@ -184,10 +184,19 @@ func installConnectionInjection(mgr *federation.Manager, cfg *config.Config, zap
 		zapLogger.Warn("connection injection: resolver not configured; injection stays off", zap.Error(err))
 		return
 	}
+	// MCP-19: a bad MCP_DSN_EGRESS_ALLOW opens nothing (fail closed).
+	dsnAllow, derr := federation.ParseDSNEgressAllow(c.DSNEgressAllow)
+	if derr != nil {
+		zapLogger.Warn("connection injection: DSN egress allowlist ignored; no extra database host is allowed", zap.Error(derr))
+		dsnAllow = nil
+	} else if len(dsnAllow) > 0 {
+		zapLogger.Info("connection injection: DSN egress allowlist", zap.Stringers("dsn_egress_allow", dsnAllow))
+	}
 	mgr.SetConnectionInjector(&federation.ConnectionInjector{
 		Resolver: federation.NewCachingConnectionResolver(r, c.CacheTTL),
 		Policy:   mgr.TenantPolicy(),
 		Declared: c.Servers,
+		DSNAllow: dsnAllow,
 	})
 	zapLogger.Info("connection injection: enabled",
 		zap.String("dashboard_url", c.DashboardURL),

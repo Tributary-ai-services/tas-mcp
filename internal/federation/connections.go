@@ -385,6 +385,9 @@ type ConnectionInjector struct {
 	// Policy checks an OAuth token URL the way a tenant server endpoint is
 	// checked (Q13). Nil = https only.
 	Policy *TenantPolicy
+	// DSNAllow is MCP_DSN_EGRESS_ALLOW: the host:port pairs every tenant's
+	// stored DSN may name, on top of Policy's rule (MCP-19, DSNRule).
+	DSNAllow []HostPort
 	// HTTP is the client for token requests; nil = a default with oauthTimeout.
 	HTTP *http.Client
 	Now  func() time.Time
@@ -509,14 +512,16 @@ func (ci *ConnectionInjector) prepare(ctx context.Context, tenantID, serverID st
 		if req.Method != methodToolsCall {
 			return inj, nil // a DSN is a tool argument; other methods carry none
 		}
-		value, secrets, host, err := dsnValue(conn.Secret, paramOr(conn.Params, "format", connFormatObject))
+		value, secrets, host, port, err := dsnValue(conn.Secret, paramOr(conn.Params, "format", connFormatObject))
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrConnectionUnavailable, err)
 		}
 		inj.red.add(secrets...)
 		// Q13 for the database host too: a stored DSN must not point the
-		// server at cluster infrastructure or an unlisted host (SSRF).
-		if err := ci.checkHost(tenantID, host); err != nil {
+		// server at cluster infrastructure or an unlisted host (SSRF). MCP-19:
+		// by host:port, so the platform list can open one service in
+		// tas-shared without the rest of the namespace.
+		if err := ci.checkDSNHost(tenantID, host, port); err != nil {
 			return nil, fmt.Errorf("%w: database host: %w", ErrConnectionUnavailable, err)
 		}
 		inj.req = withToolArgument(req, paramOr(conn.Params, "argument", defaultConnArgument), value)
@@ -580,35 +585,37 @@ const (
 var defaultDBPorts = map[string]int{"postgres": portPostgres, "postgresql": portPostgres,
 	"mysql": portMySQL, "mariadb": portMySQL, "sqlserver": portSQLServer}
 
-// dsnValue turns a DSN into the injected argument and lists the values to
-// redact (the DSN and its password, raw and escaped).
-func dsnValue(dsn, format string) (value interface{}, secrets []string, host string, err error) {
+// dsnValue turns a DSN into the injected argument, lists the values to
+// redact (the DSN and its password, raw and escaped), and returns the host and
+// port the server will dial (the scheme's default port when none is given; 0
+// for an unknown scheme without a port, which the egress rule refuses).
+func dsnValue(dsn, format string) (value interface{}, secrets []string, host string, port int, err error) {
 	u, perr := url.Parse(dsn)
 	if perr != nil || u.Scheme == "" || u.Host == "" {
-		return nil, nil, "", errors.New("database DSN is not a URL")
+		return nil, nil, "", 0, errors.New("database DSN is not a URL")
 	}
 	pw, _ := u.User.Password()
 	secrets = []string{dsn, pw}
 	host = u.Hostname()
-	if format == connFormatString {
-		return dsn, secrets, host, nil
-	}
-	if format != connFormatObject {
-		return nil, nil, "", fmt.Errorf("database DSN format %q must be %q or %q", format, connFormatObject, connFormatString)
-	}
 	scheme := strings.ToLower(u.Scheme)
-	port := defaultDBPorts[scheme]
+	port = defaultDBPorts[scheme]
 	if p := u.Port(); p != "" {
 		n, aerr := strconv.Atoi(p)
 		if aerr != nil {
-			return nil, nil, "", errors.New("database DSN port is not a number")
+			return nil, nil, "", 0, errors.New("database DSN port is not a number")
 		}
 		port = n
+	}
+	if format == connFormatString {
+		return dsn, secrets, host, port, nil
+	}
+	if format != connFormatObject {
+		return nil, nil, "", 0, fmt.Errorf("database DSN format %q must be %q or %q", format, connFormatObject, connFormatString)
 	}
 	return dbConnection{
 		Host: u.Hostname(), Port: port, Username: u.User.Username(), Password: pw,
 		Database: strings.TrimPrefix(u.Path, "/"), Protocol: scheme, SSLMode: u.Query().Get("sslmode"),
-	}, secrets, host, nil
+	}, secrets, host, port, nil
 }
 
 // oauthToken returns a cached or fresh access token for conn.
@@ -682,12 +689,10 @@ func (ci *ConnectionInjector) checkTokenURL(tenantID, raw string) error {
 	return basicHostCheck(u.Hostname())
 }
 
-// checkHost applies the egress rule to a database host.
-func (ci *ConnectionInjector) checkHost(tenantID, host string) error {
-	if ci.Policy != nil {
-		return ci.Policy.checkHost(tenantID, host, false, false)
-	}
-	return basicHostCheck(host)
+// checkDSNHost applies the DSN egress rule (MCP-19, DSNRule) to a database
+// host and port.
+func (ci *ConnectionInjector) checkDSNHost(tenantID, host string, port int) error {
+	return DSNRule{Platform: ci.DSNAllow, Policy: ci.Policy}.Check(tenantID, host, port)
 }
 
 // redactor removes injected values from everything the proxy produces.

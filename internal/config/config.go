@@ -96,6 +96,11 @@ type ConnectionInjectionConfig struct {
 	// Servers is MCP_CONNECTION_SERVERS, "id=kind,id=kind": the connection
 	// kind each platform server takes (its CR cannot say so).
 	Servers map[string]string `json:"servers,omitempty"`
+	// DSNEgressAllow is MCP_DSN_EGRESS_ALLOW, raw: comma-separated host:port
+	// pairs any tenant's stored DSN may name (MCP-19), e.g.
+	// "postgres-shared.tas-shared.svc.cluster.local:5432". Parsed and
+	// validated by federation.ParseDSNEgressAllow at install; unset = none.
+	DSNEgressAllow string `json:"dsn_egress_allow,omitempty"`
 	// CacheTTL is how long a resolved connection is reused (default 60s).
 	// Rotation takes effect within it.
 	CacheTTL time.Duration `json:"cache_ttl,omitempty"`
@@ -469,11 +474,12 @@ func Load() *Config {
 
 	if getEnvAsBool("MCP_CONNECTION_INJECTION", false) {
 		config.ConnectionInjection = &ConnectionInjectionConfig{
-			Enabled:      true,
-			DashboardURL: getEnv("AIQG_DASHBOARD_URL", ""),
-			ResolveToken: getEnv("MCP_CONNECTIONS_RESOLVE_TOKEN", ""),
-			Servers:      parseConnectionServers(getEnv("MCP_CONNECTION_SERVERS", "")),
-			CacheTTL:     getEnvAsDuration("MCP_CONNECTION_CACHE_TTL", DefaultConnectionCacheTTL),
+			Enabled:        true,
+			DashboardURL:   getEnv("AIQG_DASHBOARD_URL", ""),
+			ResolveToken:   getEnv("MCP_CONNECTIONS_RESOLVE_TOKEN", ""),
+			Servers:        parseConnectionServers(getEnv("MCP_CONNECTION_SERVERS", "")),
+			DSNEgressAllow: getEnv("MCP_DSN_EGRESS_ALLOW", ""),
+			CacheTTL:       getEnvAsDuration("MCP_CONNECTION_CACHE_TTL", DefaultConnectionCacheTTL),
 		}
 	}
 
