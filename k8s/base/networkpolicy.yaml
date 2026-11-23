@@ -62,6 +62,24 @@ spec:
     ports:
     - protocol: TCP
       port: 8083
+  # AIQG-88: the delegated-invoke listener (MCP_DELEGATION_PORT, 8086) is
+  # reachable from aether-backend pods only. The delegate credential is refused
+  # on 8082, so this rule, not the credential alone, is what keeps every other
+  # pod from acting as an org. The pod selector uses matchExpressions on
+  # purpose: commonLabels rewrites a peer's matchLabels (see the redis note
+  # below), and app: aether-backend would become app: tas-mcp.
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: aether-be
+      podSelector:
+        matchExpressions:
+        - key: app
+          operator: In
+          values: ["aether-backend"]
+    ports:
+    - protocol: TCP
+      port: 8086
   egress:
   # Allow DNS resolution
   - ports:

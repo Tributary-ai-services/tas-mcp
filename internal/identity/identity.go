@@ -46,6 +46,10 @@ const (
 	// connection) that names its tenant in TAS-MCP-On-Behalf-Of-Tenant
 	// (Plan #22 C.4). Never produced by the resolver from a TAS-Auth token.
 	ResultOnBehalf = "admin_on_behalf"
+	// ResultDelegated — a call with the delegate credential (AIQG-88) whose
+	// org, tenant and acting user aiqg-dashboard-be verified. Never produced
+	// by the resolver from a TAS-Auth token.
+	ResultDelegated = "delegated"
 )
 
 // Identity is the resolved caller of one proxy request.
@@ -69,6 +73,18 @@ type Identity struct {
 	OwnerSub      string
 	Label         string
 	Suspended     bool
+
+	// DelegatedBy names the service that made a delegated call
+	// (MCP_DELEGATE_NAME, e.g. aether-be); empty otherwise. For a delegated
+	// call UserID is the acting user's Keycloak sub, which aiqg-dashboard-be
+	// verified is a member of the org, not a self-asserted baggage value.
+	DelegatedBy string
+	// AetherOrgID is the Aether organization a delegated call named.
+	AetherOrgID string
+	// ExpectedConnectionID is the stored connection a delegated call says
+	// it is bound to (TAS-MCP-Expected-Connection-Id). When set, the proxy
+	// refuses (409) unless that is exactly the connection it would inject.
+	ExpectedConnectionID string
 
 	// SourceApp is the TAS-Source-App header when present (≤128 chars), else
 	// the token's source_app — the gateway's precedence.

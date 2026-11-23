@@ -21,5 +21,6 @@
     "pii-ssn": 1
   },
   "scan_skipped": false,
-  "occurred_at": "2026-11-21T16:04:05.123Z"
+  "occurred_at": "2026-11-21T16:04:05.123Z",
+  "delegated_by": null
 }

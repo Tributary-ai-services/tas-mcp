@@ -31,6 +31,7 @@ type Server struct {
 	forwarder         *forwarding.EventForwarder
 	federationManager federation.TASManager
 	identityResolver  *identity.Resolver
+	delegation        *federation.Delegation
 	version           string
 	startTime         time.Time
 }
@@ -68,6 +69,12 @@ func NewServerWithFederation(
 // Must be called before Handler.
 func (s *Server) SetIdentityResolver(r *identity.Resolver) {
 	s.identityResolver = r
+}
+
+// SetDelegation enables the delegate credential (AIQG-88). Nil disables it.
+// Must be called before Handler.
+func (s *Server) SetDelegation(d *federation.Delegation) {
+	s.delegation = d
 }
 
 // EventRequest represents the HTTP request structure for MCP events
@@ -128,7 +135,21 @@ func (s *Server) Handler() http.Handler {
 	// Legacy MCP endpoint for backward compatibility
 	r.HandleFunc("/mcp", s.handleLegacyMCPEvent).Methods("POST")
 
-	return r
+	// AIQG-88: the delegate credential is refused on this listener entirely;
+	// delegated calls are served by DelegatedHandler on their own port.
+	return federation.RefuseDelegateHeader(s.delegation, r)
+}
+
+// DelegatedHandler is the delegated listener's handler (AIQG-88), or nil when
+// delegation is off or there is no federation manager.
+func (s *Server) DelegatedHandler() http.Handler {
+	if s.delegation == nil || s.federationManager == nil {
+		return nil
+	}
+	h := federation.NewHTTPHandlers(s.federationManager, s.log)
+	h.SetIdentityResolver(s.identityResolver)
+	h.SetDelegation(s.delegation)
+	return h.DelegatedHandler()
 }
 
 // Middleware

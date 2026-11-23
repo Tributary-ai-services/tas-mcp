@@ -192,6 +192,7 @@ type connEnv struct {
 	obs    *captureObserver
 	scan   *recordingScanner
 	logs   *observer.ObservedLogs
+	log    *zap.Logger
 	bodies []string
 }
 
@@ -230,7 +231,7 @@ func newConnEnv(t *testing.T) *connEnv {
 		Validator: fakeValidator{tokenA: tenantA, tokenB: tenantB, tokenC: tenantC}})
 	r := mux.NewRouter()
 	h.RegisterRoutes(r)
-	return &connEnv{m: m, router: r, up: up, res: res, obs: obs, scan: sc, logs: logs}
+	return &connEnv{m: m, router: r, up: up, res: res, obs: obs, scan: sc, logs: logs, log: log}
 }
 
 func (e *connEnv) call(t *testing.T, srv, body string, hdr map[string]string) *httptest.ResponseRecorder {

@@ -142,3 +142,76 @@ aiqg-dashboard-be holds no tenant's `TAS-Auth` token, only its hash, so its Test
 
 - is treated as an attributed call by that tenant: it may call that tenant's servers and gets that tenant's connection injected;
 - gets an **unfiltered** `tools/list`, so the UI can choose `allowed_tools` from every tool the server offers, while `tools/call` of a disallowed tool is still refused.
+
+## The delegate credential (AIQG-88)
+
+Plan #22 C.6 moves aether-be onto the proxy. aether-be holds no tenant's `TAS-Auth` token, and AIQG cannot issue one to a service. It therefore calls with a single **delegate credential** and names the Aether organization and the user it acts for. The proxy checks both with aiqg-dashboard-be before it attributes the call to a tenant.
+
+The feature is off by default. With `MCP_DELEGATION_ENABLED` unset, the delegate headers mean nothing and every route behaves exactly as before.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MCP_DELEGATION_ENABLED` | off | Turns the delegate credential on. It also needs `IDENTITY_ENABLED` and `MCP_TENANT_SERVERS`. Without them, it stays off and logs a Warn. |
+| `MCP_DELEGATE_TOKEN` | — | The credential, from Secret `tas-mcp-delegate-token` (key `token`). It must be at least 32 characters, must not start with `tas_qg_live_`, and must differ from `MCP_ADMIN_TOKEN`. If it breaks any of these rules, delegation stays off. It is never logged. |
+| `MCP_DELEGATE_NAME` | `aether-be` | Recorded on each tool-call event as `delegated_by`. |
+| `MCP_DELEGATION_VERIFY_TOKEN` | — | Sent as `Internal-Auth` to aiqg-dashboard-be `POST /internal/mcp/delegation/verify`. It is a token of its own, from Secret `aiqg-mcp-delegation-verify-token`. It is never logged. |
+| `AIQG_DASHBOARD_URL` | — | The base URL of the verify endpoint (the same service as the identity validator). |
+| `MCP_DELEGATION_CACHE_TTL` | `60s` | How long a verify answer, allowed or refused, is reused. Errors are never cached. |
+| `MCP_DELEGATION_PORT` | `8086` | The **delegated listener**: the only place a delegated call is served. Its Service is `tas-mcp-delegated` (`prod-tas-mcp-delegated` in prod), and its NetworkPolicy rule admits only pods labelled `app=aether-backend` in namespace `aether-be`. The main HTTP port refuses the credential outright. |
+
+### A delegated call
+
+```
+POST http://prod-tas-mcp-delegated.tas-mcp-prod.svc.cluster.local:8086/api/v1/federation/servers/{id}/invoke
+TAS-MCP-Delegate-Token:      <MCP_DELEGATE_TOKEN>
+TAS-MCP-On-Behalf-Of-Org:    <Aether organization id>     (required)
+TAS-MCP-On-Behalf-Of-User:   <acting user's Keycloak sub> (required)
+TAS-MCP-On-Behalf-Of-Tenant: <AIQG tenant uuid>           (optional; must match the org's link)
+TAS-MCP-Expected-Connection-Id: <stored connection id>    (optional; 409 if the tenant's connection is another one or none)
+{"method": "tools/list" | "tools/call", ...}
+```
+
+1. **Credential.** It is compared in constant time, on hashes of both values. A wrong value gets 403.
+2. **Shape.** What counts is whether a header is present, not its first value. Each of these gets 400:
+   - the credential sent together with `TAS-Auth` or `TAS-MCP-Admin-Token`, even with an empty value;
+   - the credential, org, user, tenant or expected-connection header sent more than once;
+   - a missing or malformed org or user header, or a tenant header that is not a UUID.
+3. **Verify.** The proxy calls aiqg-dashboard-be with `{aether_org_id, tenant_id?, user_sub}`. The call is refused with **403** if:
+   - the org is not linked to a live AIQG org account;
+   - a named tenant is not the org's;
+   - the user is not a member of the org in AIQG's copy of Aether's membership (`team_member_history`, at org level or in any team).
+   The refusal body says only `delegated call refused: <code>` and never names a tenant.
+4. **Fail closed.** If the verify call cannot be answered (an outage, a 5xx, a 401 on the proxy's own token, or an answer that does not echo the org and user it was asked about), the call gets **503**. Nothing is cached in that case.
+5. **Attribution.** Only after a successful verify is the call attributed to the tenant: `identity.Result=delegated`, `TenantID`, `UserID` set to the verified sub, and `DelegatedBy`. Every other rule then applies as it does to a `TAS-Auth` caller:
+   - the tenant's server visibility and `allowed_tools`, with `tools/list` filtered (the admin on-behalf path's unfiltered `tools/list` does **not** apply);
+   - connection injection for that tenant;
+   - SEC-38's connection-required rule;
+   - the suspended-account refusal.
+6. **Methods.** Only `tools/list` and `tools/call` are accepted. Any other method gets 403.
+7. **Expected connection.** When `TAS-MCP-Expected-Connection-Id` is sent, the proxy resolves the tenant's connection for the server first (through the same 60 s cache). If that connection is another one, or there is none, the call gets **409** and nothing is injected. aether-be sends the id its `Database` row is bound to, so replacing a tenant's connection in AIQG can never silently repoint the row.
+8. **Logs.** A refusal logs the org id and a short hash of the sub (`user_sub_hash`), never the sub itself. This keeps valid (org, user) pairs out of Loki.
+
+### Where it is refused
+
+There are **two listeners**.
+
+- **The main HTTP port (8082).** With delegation on, `RefuseDelegateHeader` refuses with **403**, before routing, any request that carries `TAS-MCP-Delegate-Token` with any value, empty included, on every route, invoke included. That covers:
+  - register, update and delete, even when a valid admin token is sent alongside;
+  - the read routes;
+  - broadcast;
+  - events, forwarding, metrics and stats;
+  - the legacy `/mcp` route.
+- **The delegated listener (`MCP_DELEGATION_PORT`).** It serves `POST /api/v1/federation/servers/{id}/invoke` and nothing else. Any other path gets 404, any other method on invoke gets 405, and a request without the credential gets 403. A `TAS-Auth` caller is not served there either.
+- **gRPC** never reads the header.
+
+The listener split exists so the network enforces who may hold the credential. Port 8082 admits any source (a NetworkPolicy rule patched in on 2026-02-06), so a credential accepted there could be used from any pod that obtained its value. Port 8086 admits only `app=aether-backend` in `aether-be`. The rule uses `matchExpressions` because kustomize `commonLabels` rewrites a peer's `matchLabels`.
+
+**Follow-up, not done:** bind the credential to aether-backend's identity, for example a projected ServiceAccount token checked with TokenReview, so that a copy of the value is useless even from an admitted pod.
+
+**Not a gateway token.** The credential can never have the `tas_qg_live_` shape, because startup refuses one that does. The proxy's identity resolver treats any other `TAS-Auth` value as malformed: the call is unattributed, nothing is injected, and a tenant server gets 403. The LLM gateway applies the same shape rule before it calls `/internal/auth/validate`, and the credential is not in AIQG's token store, so the gateway refuses it.
+
+### Events
+
+`com.tas.aiqg.tool_call.v1` gains `delegated_by`, which is null for calls that are not delegated. On a delegated call, `tenant_id` is the verified tenant and `user_id` is the verified Keycloak sub (not a self-asserted baggage value), and `owner_sub` and `token_id` are null. The field is additive. The aggregator reads an explicit schema, so it ignores `delegated_by` until Timescale `009` gains a column for it.
+
+Metric: `tas_mcp_delegation_decisions_total{outcome}`, where `outcome` is one of `verified`, `bad_token`, `ambiguous`, `bad_headers`, `refused`, `unavailable`, `wrong_method` or `wrong_route`.

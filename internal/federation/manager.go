@@ -2,6 +2,7 @@ package federation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -127,6 +128,9 @@ func (m *Manager) injectConnection(ctx context.Context, serverID string, req *MC
 		ConnectionInjections.WithLabelValues("none").Inc()
 		return ctx, out, nil, nil
 	}
+	if err := m.checkExpectedConnection(ctx, ci, id, tenant, serverID); err != nil {
+		return ctx, req, nil, err
+	}
 	inj, err := ci.prepare(ctx, tenant, serverID, out)
 	if err != nil {
 		ConnectionInjections.WithLabelValues("failed").Inc()
@@ -166,6 +170,34 @@ func stripCallerDSN(req *MCPRequest, capab capability) *MCPRequest {
 		return c
 	}
 	return req
+}
+
+// ErrConnectionMismatch — a delegated call named the stored connection its
+// record is bound to, and the tenant's connection for the server is another
+// one, or none (AIQG-88 LOW-2). The HTTP answer is 409.
+var ErrConnectionMismatch = errors.New("connection mismatch: the tenant's stored connection is not the one this record is bound to")
+
+// checkExpectedConnection refuses a call whose identity names an expected
+// connection that is not the tenant's current one for the server. It runs
+// before prepare, so a mismatch injects nothing and reaches no server. It
+// resolves through the same cache prepare uses.
+func (m *Manager) checkExpectedConnection(ctx context.Context, ci *ConnectionInjector, id *identity.Identity,
+	tenant, serverID string) error {
+	if id == nil || id.ExpectedConnectionID == "" {
+		return nil
+	}
+	conn, err := ci.Resolver.Resolve(ctx, tenant, serverID)
+	if err != nil {
+		ConnectionInjections.WithLabelValues("failed").Inc()
+		return ErrConnectionUnavailable
+	}
+	if conn == nil || conn.ID != id.ExpectedConnectionID {
+		ConnectionInjections.WithLabelValues("mismatch").Inc()
+		m.logger.Warn("federation: stored connection is not the one the record is bound to; call refused",
+			zap.String("server_id", serverID), zap.String("caller_tenant_id", tenant))
+		return ErrConnectionMismatch
+	}
+	return nil
 }
 
 // refuseUncheckedCaller fails closed when the caller's token could not be
