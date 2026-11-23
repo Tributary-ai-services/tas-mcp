@@ -51,3 +51,24 @@ spec:
     protocol: TCP
   selector:
     app: tas-mcp
+---
+# AIQG-88: delegated tool invoke only (aether-be). Admitted by the
+# NetworkPolicy from aether-backend pods only. The listener starts only with
+# MCP_DELEGATION_ENABLED; until then the port refuses connections.
+apiVersion: v1
+kind: Service
+metadata:
+  name: tas-mcp-delegated
+  namespace: tas-mcp
+  labels:
+    app: tas-mcp
+    service: delegated
+spec:
+  type: ClusterIP
+  ports:
+  - name: delegated
+    port: 8086
+    targetPort: delegated
+    protocol: TCP
+  selector:
+    app: tas-mcp

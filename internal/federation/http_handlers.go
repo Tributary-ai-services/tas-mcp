@@ -356,6 +356,13 @@ func (h *HTTPHandlers) handleUnregisterServer(w http.ResponseWriter, r *http.Req
 
 // handleInvokeServer invokes a method on a specific server
 func (h *HTTPHandlers) handleInvokeServer(w http.ResponseWriter, r *http.Request) {
+	h.serveInvoke(w, r, h.invokeIdentity)
+}
+
+// serveInvoke decodes one invoke, resolves its caller with identify, and
+// runs it. identify writes its own refusal and returns ok=false.
+func (h *HTTPHandlers) serveInvoke(w http.ResponseWriter, r *http.Request,
+	identify func(http.ResponseWriter, *http.Request) (context.Context, bool)) {
 	vars := mux.Vars(r)
 	serverID := vars["id"]
 
@@ -366,7 +373,7 @@ func (h *HTTPHandlers) handleInvokeServer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ctx, ok := h.invokeIdentity(w, r)
+	ctx, ok := identify(w, r)
 	if !ok {
 		return
 	}
@@ -395,6 +402,28 @@ func (h *HTTPHandlers) handleInvokeServer(w http.ResponseWriter, r *http.Request
 	h.writeJSONResponse(w, http.StatusOK, response)
 }
 
+// DelegatedHandler is the delegated listener's whole HTTP surface
+// (MCP_DELEGATION_PORT, AIQG-88): POST /api/v1/federation/servers/{id}/invoke,
+// and only with the delegate credential. Every other path is 404 or 405, and
+// a request without the credential is 403. Nil when delegation is off.
+func (h *HTTPHandlers) DelegatedHandler() http.Handler {
+	if h.delegation == nil {
+		return nil
+	}
+	r := mux.NewRouter()
+	r.HandleFunc("/api/v1/federation/servers/{id}/invoke", func(w http.ResponseWriter, req *http.Request) {
+		h.serveInvoke(w, req, h.delegatedIdentity)
+	}).Methods(http.MethodPost)
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if !HasDelegateHeader(req) {
+			delegationOutcomes.WithLabelValues("not_delegated").Inc()
+			http.Error(w, "this listener serves delegated calls only", http.StatusForbidden)
+			return
+		}
+		r.ServeHTTP(w, req)
+	})
+}
+
 // OnBehalfOfTenantHeader names the tenant an admin-token invoke runs as
 // (Plan #22 C.4). aiqg-dashboard-be's Test connection uses it: dashboard-be
 // holds no tenant's TAS-Auth token (only their hashes), so it calls with the
@@ -407,9 +436,6 @@ const OnBehalfOfTenantHeader = "TAS-MCP-On-Behalf-Of-Tenant"
 // token, or, for an admin-token call naming a tenant in
 // OnBehalfOfTenantHeader, that tenant. A malformed tenant id is a 400.
 func (h *HTTPHandlers) invokeIdentity(w http.ResponseWriter, r *http.Request) (context.Context, bool) {
-	if h.delegation != nil && HasDelegateHeader(r) {
-		return h.delegatedIdentity(w, r)
-	}
 	t := r.Header.Get(OnBehalfOfTenantHeader)
 	p := h.tenancy()
 	if t == "" || p == nil || !p.IsAdmin(r) {
@@ -431,24 +457,33 @@ func (h *HTTPHandlers) invokeIdentity(w http.ResponseWriter, r *http.Request) (c
 // never logged.
 func (h *HTTPHandlers) delegatedIdentity(w http.ResponseWriter, r *http.Request) (context.Context, bool) {
 	d := h.delegation
-	if r.Header.Get("TAS-Auth") != "" || r.Header.Get(AdminTokenHeader) != "" {
+	if d == nil {
+		http.Error(w, "delegation is off", http.StatusForbidden)
+		return nil, false
+	}
+	// Presence, not value: an empty or repeated header still counts.
+	if headerPresent(r, "TAS-Auth") || headerPresent(r, AdminTokenHeader) {
 		delegationOutcomes.WithLabelValues("ambiguous").Inc()
 		http.Error(w, "send the delegate credential alone, without TAS-Auth or an admin token", http.StatusBadRequest)
 		return nil, false
 	}
-	if !d.Matches(r.Header.Get(DelegateTokenHeader)) {
+	tok, one := singleHeader(r, DelegateTokenHeader)
+	if !one {
+		delegationOutcomes.WithLabelValues("ambiguous").Inc()
+		http.Error(w, "send exactly one "+DelegateTokenHeader, http.StatusBadRequest)
+		return nil, false
+	}
+	if !d.Matches(tok) {
 		delegationOutcomes.WithLabelValues("bad_token").Inc()
 		h.logger.Warn("federation: delegated invoke refused: invalid delegate credential", zap.String("path", r.URL.Path))
 		http.Error(w, "invalid "+DelegateTokenHeader, http.StatusForbidden)
 		return nil, false
 	}
-	org := strings.TrimSpace(r.Header.Get(OnBehalfOfOrgHeader))
-	user := strings.TrimSpace(r.Header.Get(OnBehalfOfUserHeader))
-	tenant := strings.ToLower(strings.TrimSpace(r.Header.Get(OnBehalfOfTenantHeader)))
-	if !ValidDelegateID(org) || !ValidDelegateID(user) || (tenant != "" && !isUUID(tenant)) {
+	org, user, tenant, expected, ok := delegationNames(r)
+	if !ok {
 		delegationOutcomes.WithLabelValues("bad_headers").Inc()
-		http.Error(w, "a delegated call needs "+OnBehalfOfOrgHeader+" and "+OnBehalfOfUserHeader+
-			" (and, if sent, a UUID in "+OnBehalfOfTenantHeader+")", http.StatusBadRequest)
+		http.Error(w, "a delegated call needs exactly one "+OnBehalfOfOrgHeader+" and one "+OnBehalfOfUserHeader+
+			" (and, if sent, one UUID in "+OnBehalfOfTenantHeader+" and one "+ExpectedConnectionHeader+")", http.StatusBadRequest)
 		return nil, false
 	}
 	g, err := d.Verifier.Verify(r.Context(), org, tenant, user)
@@ -461,8 +496,10 @@ func (h *HTTPHandlers) delegatedIdentity(w http.ResponseWriter, r *http.Request)
 		if errors.As(err, &ref) {
 			code = ref.Code
 		}
+		// The sub is logged as a hash only (MEDIUM-2).
 		h.logger.Warn("federation: delegated invoke refused",
-			zap.String("delegated_by", d.Name), zap.String("aether_org_id", org), zap.String("code", code))
+			zap.String("delegated_by", d.Name), zap.String("aether_org_id", org),
+			zap.String("user_sub_hash", SubHash(user)), zap.String("code", code))
 		http.Error(w, "delegated call refused: "+code, http.StatusForbidden)
 		return nil, false
 	default:
@@ -473,19 +510,47 @@ func (h *HTTPHandlers) delegatedIdentity(w http.ResponseWriter, r *http.Request)
 	}
 	delegationOutcomes.WithLabelValues("verified").Inc()
 	return identity.WithIdentity(r.Context(), &identity.Identity{
-		Attributed:  true,
-		Result:      identity.ResultDelegated,
-		TenantID:    g.TenantID,
-		Suspended:   g.Suspended,
-		UserID:      g.UserSub,
-		DelegatedBy: d.Name,
-		AetherOrgID: org,
-		SourceApp:   d.Name,
-		ToolCallID:  clipHeader(r.Header.Get("TAS-Tool-Call-Id")),
-		AgentID:     clipHeader(r.Header.Get("TAS-Agent-Id")),
-		FlowID:      clipHeader(r.Header.Get("TAS-Flow-Id")),
-		StepID:      clipHeader(r.Header.Get("TAS-Step-Id")),
+		Attributed:           true,
+		Result:               identity.ResultDelegated,
+		TenantID:             g.TenantID,
+		Suspended:            g.Suspended,
+		UserID:               g.UserSub,
+		DelegatedBy:          d.Name,
+		AetherOrgID:          org,
+		ExpectedConnectionID: expected,
+		SourceApp:            d.Name,
+		ToolCallID:           clipHeader(r.Header.Get("TAS-Tool-Call-Id")),
+		AgentID:              clipHeader(r.Header.Get("TAS-Agent-Id")),
+		FlowID:               clipHeader(r.Header.Get("TAS-Flow-Id")),
+		StepID:               clipHeader(r.Header.Get("TAS-Step-Id")),
 	}), true
+}
+
+// delegationNames reads who a delegated call acts for: exactly one org and
+// one user, and at most one tenant (a UUID) and one expected connection.
+// ok is false for any missing, repeated or malformed value.
+func delegationNames(r *http.Request) (org, user, tenant, expected string, ok bool) {
+	org, okOrg := singleHeader(r, OnBehalfOfOrgHeader)
+	user, okUser := singleHeader(r, OnBehalfOfUserHeader)
+	if !okOrg || !okUser || !ValidDelegateID(org) || !ValidDelegateID(user) {
+		return "", "", "", "", false
+	}
+	if headerPresent(r, OnBehalfOfTenantHeader) {
+		var one bool
+		tenant, one = singleHeader(r, OnBehalfOfTenantHeader)
+		tenant = strings.ToLower(tenant)
+		if !one || !isUUID(tenant) {
+			return "", "", "", "", false
+		}
+	}
+	if headerPresent(r, ExpectedConnectionHeader) {
+		var one bool
+		expected, one = singleHeader(r, ExpectedConnectionHeader)
+		if !one || !ValidDelegateID(expected) {
+			return "", "", "", "", false
+		}
+	}
+	return org, user, tenant, expected, true
 }
 
 // maxDelegatedHeaderLen caps a self-asserted header copied into an event, as
@@ -520,6 +585,11 @@ func (h *HTTPHandlers) invokeStatus(err error) int {
 	if errors.Is(err, ErrConnectionRequired) {
 		// Only produced for MCP_CONNECTION_REQUIRED_SERVERS; not retryable.
 		return http.StatusForbidden
+	}
+	if errors.Is(err, ErrConnectionMismatch) {
+		// AIQG-88 LOW-2: the stored connection is not the one the caller's
+		// record is bound to. Not retryable until the binding is fixed.
+		return http.StatusConflict
 	}
 	if errors.Is(err, ErrAccountSuspended) {
 		// Only produced with MCP_CONNECTION_INJECTION on; the gateway's 403.

@@ -118,7 +118,15 @@ type DelegationConfig struct {
 	VerifyToken string `json:"-"`
 	// CacheTTL is how long a verify answer is reused (default 60s).
 	CacheTTL time.Duration `json:"cache_ttl,omitempty"`
+	// Port is MCP_DELEGATION_PORT: the delegated listener's port (default
+	// 8086). Delegated calls are served only there; the main HTTP port
+	// refuses the delegate credential. Its NetworkPolicy admits aether-backend
+	// pods only.
+	Port int `json:"port,omitempty"`
 }
+
+// DefaultDelegationPort is the delegated listener's port.
+const DefaultDelegationPort = 8086
 
 // DefaultDelegationCacheTTL matches the identity validator's cache.
 const DefaultDelegationCacheTTL = 60 * time.Second
@@ -481,6 +489,7 @@ func Load() *Config {
 			DashboardURL: getEnv("AIQG_DASHBOARD_URL", ""),
 			VerifyToken:  getEnv("MCP_DELEGATION_VERIFY_TOKEN", ""),
 			CacheTTL:     getEnvAsDuration("MCP_DELEGATION_CACHE_TTL", DefaultDelegationCacheTTL),
+			Port:         getEnvAsInt("MCP_DELEGATION_PORT", DefaultDelegationPort),
 		}
 	}
 

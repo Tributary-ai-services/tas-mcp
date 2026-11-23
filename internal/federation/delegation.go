@@ -3,19 +3,27 @@ package federation
 // The delegate credential (Plan #22 AIQG-88).
 //
 // One service (aether-be) holds one credential, MCP_DELEGATE_TOKEN, which it
-// sends in TAS-MCP-Delegate-Token. It is accepted for exactly one thing:
-// POST /api/v1/federation/servers/{id}/invoke with method tools/list or
-// tools/call. Every other route refuses a request that carries it (403), so it
+// sends in TAS-MCP-Delegate-Token. It is accepted for exactly one thing, on
+// exactly one listener: POST /api/v1/federation/servers/{id}/invoke with
+// method tools/list or tools/call, on the delegated listener
+// (MCP_DELEGATION_PORT, 8086), whose NetworkPolicy admits aether-backend pods
+// only. The main listener refuses any request that carries it (403), so it
 // can never register, update or delete a server, read the admin view, or
-// broadcast. It is not a TAS-Auth token: it never has the tas_qg_live_ shape
+// broadcast, and a pod that is not aether-backend cannot use it even with the
+// value. It is not a TAS-Auth token: it never has the tas_qg_live_ shape
 // (startup refuses one that does), so the proxy's identity resolver and the
 // LLM gateway both treat it as malformed if it is ever sent there.
+//
+// Header presence is what counts: a repeated delegation header, or a TAS-Auth
+// or admin header next to the credential (even empty), is a 400.
 //
 // A delegated call names who it acts for:
 //
 //	TAS-MCP-On-Behalf-Of-Org:    the Aether organization id      (required)
 //	TAS-MCP-On-Behalf-Of-User:   the acting user's Keycloak sub   (required)
 //	TAS-MCP-On-Behalf-Of-Tenant: the AIQG tenant uuid             (optional)
+//	TAS-MCP-Expected-Connection-Id: the stored connection the
+//	                             caller's record is bound to     (optional; 409 on mismatch)
 //
 // The proxy asks aiqg-dashboard-be (POST /internal/mcp/delegation/verify,
 // Internal-Auth MCP_DELEGATION_VERIFY_TOKEN) which tenant the org is linked
@@ -34,6 +42,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -146,34 +155,58 @@ func (d *Delegation) Matches(presented string) bool {
 	return subtle.ConstantTimeCompare(sum[:], d.tokenSum[:]) == 1
 }
 
-// HasDelegateHeader reports whether r carries the delegate credential header.
+// ExpectedConnectionHeader names the stored connection a delegated call
+// expects the proxy to inject (AIQG-88 LOW-2). aether-be sends the id its
+// Database row is bound to; a different connection, or none, is a 409, so
+// replacing a tenant's connection in AIQG can never silently repoint a row.
+const ExpectedConnectionHeader = "TAS-MCP-Expected-Connection-Id"
+
+// HasDelegateHeader reports whether r carries the delegate credential header
+// at all, with any value, empty included.
 func HasDelegateHeader(r *http.Request) bool {
-	return r.Header.Get(DelegateTokenHeader) != ""
+	return len(r.Header.Values(DelegateTokenHeader)) > 0
 }
 
-// invokePathRe is the only route the delegate credential is accepted on.
-var invokePathRe = regexp.MustCompile(`^/api/v1/federation/servers/[^/]+/invoke$`)
-
-// IsDelegableRoute reports whether r is the invoke route.
-func IsDelegableRoute(r *http.Request) bool {
-	return r.Method == http.MethodPost && invokePathRe.MatchString(r.URL.Path)
+// headerPresent reports whether name appears at all, with any value.
+func headerPresent(r *http.Request, name string) bool {
+	return len(r.Header.Values(name)) > 0
 }
 
-// RefuseDelegateOutsideInvoke wraps the whole HTTP handler: a request that
-// carries the delegate header anywhere but invoke is refused before routing.
-// With delegation off (d == nil) it passes everything through unchanged.
-func RefuseDelegateOutsideInvoke(d *Delegation, next http.Handler) http.Handler {
+// singleHeader returns the one value of name, and false when it is absent
+// or repeated (a repeated delegation header is ambiguous, never "the first").
+func singleHeader(r *http.Request, name string) (string, bool) {
+	v := r.Header.Values(name)
+	if len(v) != 1 {
+		return "", false
+	}
+	return strings.TrimSpace(v[0]), true
+}
+
+// RefuseDelegateHeader wraps the main listener: with delegation on, a request
+// that carries the delegate credential is refused on every route, invoke
+// included. Delegated calls are served only by the delegated listener
+// (DelegatedHandler, MCP_DELEGATION_PORT), whose NetworkPolicy admits
+// aether-backend pods only. With delegation off (d == nil) it passes
+// everything through unchanged.
+func RefuseDelegateHeader(d *Delegation, next http.Handler) http.Handler {
 	if d == nil {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if HasDelegateHeader(r) && !IsDelegableRoute(r) {
-			delegationOutcomes.WithLabelValues("wrong_route").Inc()
-			http.Error(w, "the delegate credential is accepted only on tool invoke", http.StatusForbidden)
+		if HasDelegateHeader(r) {
+			delegationOutcomes.WithLabelValues("wrong_listener").Inc()
+			http.Error(w, "the delegate credential is accepted only on the delegated listener", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// SubHash is how a user sub appears in logs: a short sha256, so refusals
+// cannot be mined from Loki for valid (org, user) pairs.
+func SubHash(sub string) string {
+	sum := sha256.Sum256([]byte("tas-mcp-delegation-sub\x00" + sub))
+	return hex.EncodeToString(sum[:6])
 }
 
 // DelegableMethod reports whether an MCP method may run on a delegated call.
@@ -202,8 +235,14 @@ func NewDashboardDelegationVerifier(baseURL, token string) (*DashboardDelegation
 	if baseURL == "" || token == "" {
 		return nil, errors.New("delegation verifier needs AIQG_DASHBOARD_URL and MCP_DELEGATION_VERIFY_TOKEN")
 	}
-	return &DashboardDelegationVerifier{HTTP: &http.Client{Timeout: DefaultDelegationTimeout},
+	return &DashboardDelegationVerifier{HTTP: &http.Client{Timeout: DefaultDelegationTimeout, CheckRedirect: refuseRedirect},
 		BaseURL: strings.TrimRight(baseURL, "/"), Token: token}, nil
+}
+
+// refuseRedirect never follows a redirect from the verify endpoint: the
+// target passed no check and would receive the Internal-Auth token.
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return errors.New("delegation verify redirected; redirects are refused")
 }
 
 type delegationVerifyBody struct {
@@ -317,7 +356,7 @@ func (c *CachingDelegationVerifier) Verify(ctx context.Context, org, tenant, use
 
 // delegationOutcomes counts delegated-call decisions, by outcome: a closed
 // set (verified, bad_token, ambiguous, bad_headers, refused, unavailable,
-// wrong_method, wrong_route).
+// wrong_method, wrong_listener, not_delegated).
 var delegationOutcomes = promauto.NewCounterVec(prometheus.CounterOpts{
 	Namespace: "tas_mcp",
 	Name:      "delegation_decisions_total",

@@ -43,6 +43,11 @@ spec:
         - name: health
           containerPort: 8083
           protocol: TCP
+        # AIQG-88: delegated tool invoke (MCP_DELEGATION_PORT). Nothing listens
+        # here until MCP_DELEGATION_ENABLED is on.
+        - name: delegated
+          containerPort: 8086
+          protocol: TCP
         env:
         # Federation registry store. This was applied straight to the cluster
         # and had never been in this manifest, so `kubectl apply -k` would

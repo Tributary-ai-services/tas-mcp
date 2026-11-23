@@ -157,20 +157,25 @@ The feature is off by default. With `MCP_DELEGATION_ENABLED` unset, the delegate
 | `MCP_DELEGATION_VERIFY_TOKEN` | — | Sent as `Internal-Auth` to aiqg-dashboard-be `POST /internal/mcp/delegation/verify`. It is a token of its own, from Secret `aiqg-mcp-delegation-verify-token`. It is never logged. |
 | `AIQG_DASHBOARD_URL` | — | The base URL of the verify endpoint (the same service as the identity validator). |
 | `MCP_DELEGATION_CACHE_TTL` | `60s` | How long a verify answer, allowed or refused, is reused. Errors are never cached. |
+| `MCP_DELEGATION_PORT` | `8086` | The **delegated listener**: the only place a delegated call is served. Its Service is `tas-mcp-delegated` (`prod-tas-mcp-delegated` in prod), and its NetworkPolicy rule admits only pods labelled `app=aether-backend` in namespace `aether-be`. The main HTTP port refuses the credential outright. |
 
 ### A delegated call
 
 ```
-POST /api/v1/federation/servers/{id}/invoke
+POST http://prod-tas-mcp-delegated.tas-mcp-prod.svc.cluster.local:8086/api/v1/federation/servers/{id}/invoke
 TAS-MCP-Delegate-Token:      <MCP_DELEGATE_TOKEN>
 TAS-MCP-On-Behalf-Of-Org:    <Aether organization id>     (required)
 TAS-MCP-On-Behalf-Of-User:   <acting user's Keycloak sub> (required)
 TAS-MCP-On-Behalf-Of-Tenant: <AIQG tenant uuid>           (optional; must match the org's link)
+TAS-MCP-Expected-Connection-Id: <stored connection id>    (optional; 409 if the tenant's connection is another one or none)
 {"method": "tools/list" | "tools/call", ...}
 ```
 
 1. **Credential.** It is compared in constant time, on hashes of both values. A wrong value gets 403.
-2. **Shape.** A call that sends the credential together with `TAS-Auth` or `TAS-MCP-Admin-Token` is ambiguous and gets 400. A missing or malformed org, user or tenant header also gets 400.
+2. **Shape.** What counts is whether a header is present, not its first value. Each of these gets 400:
+   - the credential sent together with `TAS-Auth` or `TAS-MCP-Admin-Token`, even with an empty value;
+   - the credential, org, user, tenant or expected-connection header sent more than once;
+   - a missing or malformed org or user header, or a tenant header that is not a UUID.
 3. **Verify.** The proxy calls aiqg-dashboard-be with `{aether_org_id, tenant_id?, user_sub}`. The call is refused with **403** if:
    - the org is not linked to a live AIQG org account;
    - a named tenant is not the org's;
@@ -183,18 +188,25 @@ TAS-MCP-On-Behalf-Of-Tenant: <AIQG tenant uuid>           (optional; must match 
    - SEC-38's connection-required rule;
    - the suspended-account refusal.
 6. **Methods.** Only `tools/list` and `tools/call` are accepted. Any other method gets 403.
+7. **Expected connection.** When `TAS-MCP-Expected-Connection-Id` is sent, the proxy resolves the tenant's connection for the server first (through the same 60 s cache). If that connection is another one, or there is none, the call gets **409** and nothing is injected. aether-be sends the id its `Database` row is bound to, so replacing a tenant's connection in AIQG can never silently repoint the row.
+8. **Logs.** A refusal logs the org id and a short hash of the sub (`user_sub_hash`), never the sub itself. This keeps valid (org, user) pairs out of Loki.
 
 ### Where it is refused
 
-`RefuseDelegateOutsideInvoke` wraps the whole HTTP handler. A request that carries `TAS-MCP-Delegate-Token` on any route other than `POST /api/v1/federation/servers/{id}/invoke` gets **403** before routing. That covers:
+There are **two listeners**.
 
-- register, update and delete, even when a valid admin token is sent alongside;
-- the list, get, health and probe reads;
-- `broadcast`;
-- `/api/v1/events`, `/forwarding/*`, `/metrics`, `/stats`;
-- the legacy `/mcp` route and `/health`.
+- **The main HTTP port (8082).** With delegation on, `RefuseDelegateHeader` refuses with **403**, before routing, any request that carries `TAS-MCP-Delegate-Token` with any value, empty included, on every route, invoke included. That covers:
+  - register, update and delete, even when a valid admin token is sent alongside;
+  - the read routes;
+  - broadcast;
+  - events, forwarding, metrics and stats;
+  - the legacy `/mcp` route.
+- **The delegated listener (`MCP_DELEGATION_PORT`).** It serves `POST /api/v1/federation/servers/{id}/invoke` and nothing else. Any other path gets 404, any other method on invoke gets 405, and a request without the credential gets 403. A `TAS-Auth` caller is not served there either.
+- **gRPC** never reads the header.
 
-gRPC never reads the header.
+The listener split exists so the network enforces who may hold the credential. Port 8082 admits any source (a NetworkPolicy rule patched in on 2026-02-06), so a credential accepted there could be used from any pod that obtained its value. Port 8086 admits only `app=aether-backend` in `aether-be`. The rule uses `matchExpressions` because kustomize `commonLabels` rewrites a peer's `matchLabels`.
+
+**Follow-up, not done:** bind the credential to aether-backend's identity, for example a projected ServiceAccount token checked with TokenReview, so that a copy of the value is useless even from an admitted pod.
 
 **Not a gateway token.** The credential can never have the `tas_qg_live_` shape, because startup refuses one that does. The proxy's identity resolver treats any other `TAS-Auth` value as malformed: the call is unattributed, nothing is injected, and a tenant server gets 403. The LLM gateway applies the same shape rule before it calls `/internal/auth/validate`, and the credential is not in AIQG's token store, so the gateway refuses it.
 

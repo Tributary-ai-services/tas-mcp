@@ -81,6 +81,10 @@ type Identity struct {
 	DelegatedBy string
 	// AetherOrgID is the Aether organization a delegated call named.
 	AetherOrgID string
+	// ExpectedConnectionID is the stored connection a delegated call says
+	// it is bound to (TAS-MCP-Expected-Connection-Id). When set, the proxy
+	// refuses (409) unless that is exactly the connection it would inject.
+	ExpectedConnectionID string
 
 	// SourceApp is the TAS-Source-App header when present (≤128 chars), else
 	// the token's source_app — the gateway's precedence.

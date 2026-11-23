@@ -56,11 +56,13 @@ func (f *fakeDelegationVerifier) Verify(_ context.Context, org, tenant, user str
 type delegEnv struct {
 	*connEnv
 	ver     *fakeDelegationVerifier
-	handler http.Handler
+	handler http.Handler // the delegated listener
+	main    http.Handler // the main listener
 }
 
 // newDelegEnv is newConnEnv plus the delegate credential, wired the way
-// internal/http does: the whole handler wrapped by RefuseDelegateOutsideInvoke.
+// internal/http does: the main router wrapped by RefuseDelegateHeader, and
+// the delegated listener's own handler.
 func newDelegEnv(t *testing.T) *delegEnv {
 	t.Helper()
 	e := newConnEnv(t)
@@ -75,7 +77,33 @@ func newDelegEnv(t *testing.T) *delegEnv {
 	r := mux.NewRouter()
 	h.RegisterRoutes(r)
 	r.HandleFunc("/api/v1/events", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	return &delegEnv{connEnv: e, ver: ver, handler: RefuseDelegateOutsideInvoke(d, r)}
+	return &delegEnv{connEnv: e, ver: ver, handler: h.DelegatedHandler(), main: RefuseDelegateHeader(d, r)}
+}
+
+// doMain sends a request to the main listener.
+func (e *delegEnv) doMain(t *testing.T, method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	e.main.ServeHTTP(rec, req)
+	return rec
+}
+
+// rawInvoke sends an invoke to the delegated listener with exact header values,
+// duplicates included.
+func (e *delegEnv) rawInvoke(t *testing.T, srv string, h http.Header) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/federation/servers/"+srv+"/invoke", bytes.NewBufferString(callBody("query", nil)))
+	req.Header = http.Header{}
+	for k, v := range h {
+		req.Header[http.CanonicalHeaderKey(k)] = v // as the wire would deliver them
+	}
+	rec := httptest.NewRecorder()
+	e.handler.ServeHTTP(rec, req)
+	return rec
 }
 
 func (e *delegEnv) do(t *testing.T, method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
@@ -186,13 +214,17 @@ func TestDelegation_RefusalsInjectNothing(t *testing.T) {
 	}
 }
 
-// The credential is refused on every route but invoke: registry writes, the
-// admin view, broadcast and anything else.
-func TestDelegation_RefusedOutsideInvoke(t *testing.T) {
+// MEDIUM-2: the main listener refuses the credential on every route, invoke
+// included; delegated calls exist only on the delegated listener, which in
+// turn serves only invoke, and only with the credential.
+func TestDelegation_MainListenerRefusesCredential(t *testing.T) {
 	e := newDelegEnv(t)
+	e.res.set(tenantA, srvPlat, headerConn("ca", secretA))
 	hdr := delegated(orgA, userA)
 	srvJSON := `{"id":"new","name":"x","endpoint":"http://x.tas-mcp-servers.svc:80","protocol":"http"}`
+	up := e.up.count()
 	for _, c := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/v1/federation/servers/" + srvPlat + "/invoke", callBody("query", nil)},
 		{http.MethodPost, "/api/v1/federation/servers", srvJSON},
 		{http.MethodPut, "/api/v1/federation/servers/" + srvPlat, srvJSON},
 		{http.MethodDelete, "/api/v1/federation/servers/" + srvPlat, ""},
@@ -201,36 +233,130 @@ func TestDelegation_RefusedOutsideInvoke(t *testing.T) {
 		{http.MethodPost, "/api/v1/federation/broadcast", `{"id":"1","method":"tools/list"}`},
 		{http.MethodGet, "/api/v1/federation/health", ""},
 		{http.MethodPost, "/api/v1/events", `{}`},
-		{http.MethodGet, "/api/v1/federation/servers/" + srvPlat + "/invoke", ""},
 	} {
-		if rec := e.do(t, c.method, c.path, c.body, hdr); rec.Code != http.StatusForbidden {
-			t.Errorf("%s %s with the delegate credential = %d, want 403", c.method, c.path, rec.Code)
+		if rec := e.doMain(t, c.method, c.path, c.body, hdr); rec.Code != http.StatusForbidden {
+			t.Errorf("main %s %s with the delegate credential = %d, want 403", c.method, c.path, rec.Code)
 		}
 	}
-	// Even with a valid admin token alongside, a write is refused.
+	// An empty credential header still counts as present.
+	if rec := e.doMain(t, http.MethodPost, "/api/v1/federation/servers/"+srvPlat+"/invoke", callBody("query", nil),
+		map[string]string{DelegateTokenHeader: ""}); rec.Code != http.StatusForbidden {
+		t.Errorf("main with an empty delegate header = %d", rec.Code)
+	}
 	both := delegated(orgA, userA)
 	both[AdminTokenHeader] = adminToken
-	if rec := e.do(t, http.MethodDelete, "/api/v1/federation/servers/"+srvPlat, "", both); rec.Code != http.StatusForbidden {
+	if rec := e.doMain(t, http.MethodDelete, "/api/v1/federation/servers/"+srvPlat, "", both); rec.Code != http.StatusForbidden {
 		t.Errorf("delete with admin + delegate = %d", rec.Code)
 	}
 	if _, err := e.m.GetServer(srvPlat); err != nil {
 		t.Fatal("the platform server was deleted")
 	}
+	if e.up.count() != up {
+		t.Fatal("a main-listener delegated call reached the upstream")
+	}
+	// The delegated listener: only invoke, only with the credential.
+	for _, c := range []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodGet, "/api/v1/federation/servers", http.StatusNotFound},
+		{http.MethodPost, "/api/v1/federation/servers", http.StatusNotFound},
+		{http.MethodDelete, "/api/v1/federation/servers/" + srvPlat, http.StatusNotFound},
+		{http.MethodPost, "/api/v1/federation/broadcast", http.StatusNotFound},
+		{http.MethodGet, "/api/v1/federation/servers/" + srvPlat + "/invoke", http.StatusMethodNotAllowed},
+		{http.MethodPost, "/api/v1/events", http.StatusNotFound},
+		{http.MethodGet, "/health", http.StatusNotFound},
+	} {
+		if rec := e.do(t, c.method, c.path, `{}`, hdr); rec.Code != c.want {
+			t.Errorf("delegated %s %s = %d, want %d", c.method, c.path, rec.Code, c.want)
+		}
+	}
+	// Without the credential the delegated listener serves nothing, and a
+	// TAS-Auth caller is not served there either.
+	if rec := e.invoke(t, srvPlat, callBody("query", nil), as(tokenA)); rec.Code != http.StatusForbidden {
+		t.Errorf("delegated listener with TAS-Auth only = %d", rec.Code)
+	}
+	if rec := e.invoke(t, srvPlat, callBody("query", nil), nil); rec.Code != http.StatusForbidden {
+		t.Errorf("delegated listener with nothing = %d", rec.Code)
+	}
 }
 
-// The delegate credential is not a TAS-Auth token: sent there, it is
-// malformed, unattributed, gets no connection and cannot reach a tenant
-// server. The same shape rule is why the LLM gateway refuses it.
+// INFO: presence counts, not the first value. Repeated delegation headers,
+// and an empty TAS-Auth or admin header next to the credential, are refused.
+func TestDelegation_DuplicateAndEmptyHeaders(t *testing.T) {
+	e := newDelegEnv(t)
+	e.res.set(tenantA, srvPlat, headerConn("ca", secretA))
+	base := func() http.Header {
+		return http.Header{DelegateTokenHeader: {delegateToken}, OnBehalfOfOrgHeader: {orgA}, OnBehalfOfUserHeader: {userA}}
+	}
+	if rec := e.rawInvoke(t, srvPlat, base()); rec.Code != http.StatusOK {
+		t.Fatalf("baseline = %d %s", rec.Code, rec.Body)
+	}
+	up := e.up.count()
+	cases := map[string]func(http.Header){
+		"token empty-first":        func(h http.Header) { h[DelegateTokenHeader] = []string{"", delegateToken} },
+		"token twice":              func(h http.Header) { h[DelegateTokenHeader] = []string{delegateToken, delegateToken} },
+		"org twice":                func(h http.Header) { h[OnBehalfOfOrgHeader] = []string{orgA, orgB} },
+		"user twice":               func(h http.Header) { h[OnBehalfOfUserHeader] = []string{userA, userA} },
+		"tenant twice":             func(h http.Header) { h[OnBehalfOfTenantHeader] = []string{tenantUUID, tenantUUID} },
+		"expected twice":           func(h http.Header) { h[ExpectedConnectionHeader] = []string{"ca", "ca"} },
+		"empty TAS-Auth":           func(h http.Header) { h["Tas-Auth"] = []string{""} },
+		"TAS-Auth empty-first":     func(h http.Header) { h["Tas-Auth"] = []string{"", tokenB} },
+		"empty admin token header": func(h http.Header) { h[AdminTokenHeader] = []string{""} },
+		"user with a comma":        func(h http.Header) { h[OnBehalfOfUserHeader] = []string{userA + ",sub-mallory"} },
+		"whitespace org":           func(h http.Header) { h[OnBehalfOfOrgHeader] = []string{"   "} },
+	}
+	for name, mutate := range cases {
+		h := base()
+		mutate(h)
+		if rec := e.rawInvoke(t, srvPlat, h); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", name, rec.Code)
+		}
+	}
+	if e.up.count() != up {
+		t.Fatal("an ambiguous delegated call reached the upstream")
+	}
+}
+
+// LOW-2: a delegated call that names its bound connection is refused (409)
+// when the tenant's stored connection is a different one, or none.
+func TestDelegation_ExpectedConnectionMismatchIs409(t *testing.T) {
+	e := newDelegEnv(t)
+	e.res.set(tenantA, srvPlat, headerConn("ca", secretA))
+	with := func(expected string) map[string]string {
+		h := delegated(orgA, userA)
+		h[ExpectedConnectionHeader] = expected
+		return h
+	}
+	if rec := e.invoke(t, srvPlat, callBody("query", nil), with("ca")); rec.Code != http.StatusOK {
+		t.Fatalf("matching connection = %d %s", rec.Code, rec.Body)
+	}
+	up := e.up.count()
+	if rec := e.invoke(t, srvPlat, callBody("query", nil), with("replaced-in-aiqg")); rec.Code != http.StatusConflict {
+		t.Fatalf("other connection = %d %s", rec.Code, rec.Body)
+	}
+	e.res.set(tenantA, srvPlat, nil)
+	if rec := e.invoke(t, srvPlat, callBody("query", nil), with("ca")); rec.Code != http.StatusConflict {
+		t.Fatalf("no connection = %d %s", rec.Code, rec.Body)
+	}
+	if e.up.count() != up {
+		t.Fatal("a mismatched call reached the upstream")
+	}
+}
+
+// The delegate credential is not a TAS-Auth token: sent there (on the main
+// listener), it is malformed, unattributed, gets no connection and cannot
+// reach a tenant server. The same shape rule is why the LLM gateway refuses it.
 func TestDelegation_NotAcceptedAsTASAuth(t *testing.T) {
 	e := newDelegEnv(t)
 	e.res.set(tenantA, srvPlat, headerConn("ca", secretA))
-	if rec := e.invoke(t, srvPlat, callBody("query", nil), map[string]string{"TAS-Auth": delegateToken}); rec.Code != http.StatusOK {
+	if rec := e.doMain(t, http.MethodPost, "/api/v1/federation/servers/"+srvPlat+"/invoke", callBody("query", nil), map[string]string{"TAS-Auth": delegateToken}); rec.Code != http.StatusOK {
 		t.Fatalf("platform server = %d", rec.Code)
 	}
 	if got := e.up.lastSeen(t).Auth; got != "" {
 		t.Fatalf("delegate token as TAS-Auth injected %q", got)
 	}
-	if rec := e.invoke(t, srvA, callBody("query", nil), map[string]string{"TAS-Auth": delegateToken}); rec.Code != http.StatusForbidden {
+	if rec := e.doMain(t, http.MethodPost, "/api/v1/federation/servers/"+srvA+"/invoke", callBody("query", nil), map[string]string{"TAS-Auth": delegateToken}); rec.Code != http.StatusForbidden {
 		t.Fatalf("tenant server = %d", rec.Code)
 	}
 	if _, err := NewDelegation("tas_qg_live_"+strings.Repeat("x", 40), "d", "", &fakeDelegationVerifier{}); err == nil {
@@ -276,8 +402,11 @@ func TestDelegation_OffIsUnchanged(t *testing.T) {
 	if rec := e.call(t, srvA, callBody("query", nil), delegated(orgA, userA)); rec.Code != http.StatusForbidden {
 		t.Fatalf("tenant server = %d", rec.Code)
 	}
-	if RefuseDelegateOutsideInvoke(nil, http.NotFoundHandler()) == nil {
+	if RefuseDelegateHeader(nil, http.NotFoundHandler()) == nil {
 		t.Fatal("nil delegation must pass through")
+	}
+	if NewHTTPHandlers(e.m, e.log).DelegatedHandler() != nil {
+		t.Fatal("no delegated listener without delegation")
 	}
 }
 
@@ -287,17 +416,25 @@ func TestDelegation_CredentialNeverLogged(t *testing.T) {
 	e.res.set(tenantA, srvPlat, headerConn("ca", secretA))
 	_ = e.invoke(t, srvPlat, callBody("query", nil), delegated(orgA, userA))
 	_ = e.invoke(t, srvPlat, callBody("query", nil), delegated(orgB, userA))
+	if rec := e.invoke(t, srvPlat, callBody("query", nil), delegated(orgA, userNotMember)); rec.Code != http.StatusForbidden {
+		t.Fatalf("non-member = %d", rec.Code)
+	}
 	bad := delegated(orgA, userA)
 	bad[DelegateTokenHeader] = delegateToken + "-wrong"
 	_ = e.invoke(t, srvPlat, callBody("query", nil), bad)
 	e.ver.down = true
 	_ = e.invoke(t, srvPlat, callBody("query", nil), delegated(orgA, userA))
-	_ = e.do(t, http.MethodGet, "/api/v1/federation/servers", "", delegated(orgA, userA))
+	_ = e.doMain(t, http.MethodGet, "/api/v1/federation/servers", "", delegated(orgA, userA))
 
 	for _, entry := range e.logs.All() {
 		b, _ := json.Marshal(entry.ContextMap())
-		if strings.Contains(entry.Message+string(b), "dlg-0123456789") {
-			t.Fatalf("log line carries the delegate credential: %s %s", entry.Message, b)
+		line := entry.Message + string(b)
+		if strings.Contains(line, "dlg-0123456789") {
+			t.Fatalf("log line carries the delegate credential: %s", line)
+		}
+		// MEDIUM-2: a refused user's sub is logged only as a hash.
+		if strings.Contains(line, userNotMember) {
+			t.Fatalf("log line carries a refused sub: %s", line)
 		}
 	}
 	for _, b := range e.bodies {
@@ -374,6 +511,21 @@ func TestDashboardDelegationVerifier(t *testing.T) {
 	var ref *DelegationRefusal
 	if _, err := v.Verify(context.Background(), orgA, "", userA); !errors.As(err, &ref) || ref.Code != "not_a_member" {
 		t.Fatalf("403 = %v", err)
+	}
+	// A redirect is never followed: the target would receive Internal-Auth.
+	var hitTarget bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hitTarget = true
+		_, _ = w.Write([]byte(`{"tenant_id":"` + tenantUUID + `","aether_org_id":"` + orgA + `","user_sub":"` + userA + `"}`))
+	}))
+	defer target.Close()
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	defer redir.Close()
+	rv, _ := NewDashboardDelegationVerifier(redir.URL, "verify-token")
+	if _, err := rv.Verify(context.Background(), orgA, "", userA); !errors.Is(err, ErrDelegationUnavailable) || hitTarget {
+		t.Fatalf("redirect = %v, target hit = %v", err, hitTarget)
 	}
 	for _, st := range []int{http.StatusUnauthorized, http.StatusInternalServerError, http.StatusBadGateway} {
 		status = st

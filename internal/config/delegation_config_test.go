@@ -18,7 +18,7 @@ func TestDelegationConfig_FromEnv(t *testing.T) {
 	t.Setenv("MCP_DELEGATE_NAME", "")
 	c := Load().Delegation
 	if c == nil || !c.Enabled || c.Token != "tok" || c.VerifyToken != "vtok" || c.DashboardURL != "http://aiqg:8095" ||
-		c.Name != "aether-be" || c.CacheTTL != DefaultDelegationCacheTTL {
+		c.Name != "aether-be" || c.CacheTTL != DefaultDelegationCacheTTL || c.Port != DefaultDelegationPort {
 		t.Fatalf("got %+v", c)
 	}
 }

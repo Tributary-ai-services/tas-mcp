@@ -19,10 +19,11 @@ func (noVerify) Verify(context.Context, string, string, string) (*federation.Del
 	return nil, federation.ErrDelegationUnavailable
 }
 
-// AIQG-88: through the real Handler, the delegate credential is refused on
-// every non-federation route too (events, forwarding, metrics, the legacy
-// /mcp endpoint), and without delegation those routes behave as before.
-func TestHandler_DelegateCredentialRefusedOutsideInvoke(t *testing.T) {
+// AIQG-88 MEDIUM-2: through the real Handler, the main listener refuses the
+// delegate credential on every route (events, forwarding, metrics, the legacy
+// /mcp endpoint), and without delegation those routes behave as before. With
+// no federation manager there is no delegated listener.
+func TestHandler_MainListenerRefusesDelegateCredential(t *testing.T) {
 	log := zap.NewNop()
 	d, err := federation.NewDelegation(strings.Repeat("d", 40), "aether-be", "", noVerify{})
 	if err != nil {
@@ -31,6 +32,9 @@ func TestHandler_DelegateCredentialRefusedOutsideInvoke(t *testing.T) {
 	on := NewServer(log, grpcserver.NewMCPServer(log, nil), nil)
 	on.SetDelegation(d)
 	off := NewServer(log, grpcserver.NewMCPServer(log, nil), nil)
+	if on.DelegatedHandler() != nil || off.DelegatedHandler() != nil {
+		t.Fatal("no delegated listener without a federation manager and delegation")
+	}
 
 	for _, c := range []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/events"},
