@@ -60,3 +60,11 @@ data:
   # SEC-38: postgres-mcp never runs a call on its own login through the proxy.
   # No stored connection = 403; tools/list stays open; broadcast skips it.
   MCP_CONNECTION_REQUIRED_SERVERS: "postgres-mcp"
+  # AIQG-88 (Plan #22 C.6): aether-be's delegate credential, tool invoke only,
+  # on its own listener (MCP_DELEGATION_PORT, default 8086; Service
+  # tas-mcp-delegated, NetworkPolicy admits app=aether-backend in aether-be
+  # only). Each call is checked with aiqg-dashboard-be
+  # POST /internal/mcp/delegation/verify (org link + org membership), cached
+  # 60 s. Tokens: Secrets tas-mcp-delegate-token and
+  # aiqg-mcp-delegation-verify-token (deployment.yaml).
+  MCP_DELEGATION_ENABLED: "true"

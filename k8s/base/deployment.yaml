@@ -91,6 +91,21 @@ spec:
             secretKeyRef:
               name: mcp-connections-resolve-token
               key: token
+        # AIQG-88: the delegate credential aether-be presents on the delegated
+        # listener (same value as aether-be/aether-mcp-delegate-token), and the
+        # token for aiqg-dashboard-be's delegation verify (same value as
+        # aiqg/aiqg-mcp-delegation-verify-token). Both created by hand
+        # 2026-11-24, values in aether-secrets; never committed.
+        - name: MCP_DELEGATE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: tas-mcp-delegate-token
+              key: token
+        - name: MCP_DELEGATION_VERIFY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aiqg-mcp-delegation-verify-token
+              key: token
         envFrom:
         - configMapRef:
             name: tas-mcp-config
